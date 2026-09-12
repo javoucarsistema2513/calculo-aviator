@@ -105,47 +105,172 @@ export function analyzeMinutagem(candles: AviatorCandle[], currentTime: Date = n
     marketState,
   };
 
-  // Generate projections based on the last pink or current time
+  // Generate projections based on the last pink and current time dynamically
   const projections: MinutagemProjection[] = [];
-  const baseDate = lastPink ? new Date(lastPink.timestamp) : new Date(currentTime);
+  const nowMs = currentTime.getTime();
+  const currentMinuteStr = formatMinuteOnly(currentTime);
 
-  // Common Aviator minute intervals after a pink:
-  // 1. Short interval: 3 to 4 min
-  // 2. Medium interval: Average interval (~5-7 min)
-  // 3. Long / Mirror interval: 8 to 11 min
-  const targetDeltas = [
-    Math.max(2, Math.round(minInterval)),
-    Math.max(3, Math.round(avgInterval)),
-    Math.round(avgInterval + 3),
-    Math.round(avgInterval + 6),
-  ];
+  // Frequency of pink endings to find hot minutes
+  const topEndings = Object.entries(endingsFreq)
+    .map(([digit, count]) => ({ digit: parseInt(digit, 10), count }))
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.count - a.count);
 
-  // Eliminate duplicates
-  const uniqueDeltas = Array.from(new Set(targetDeltas)).sort((a, b) => a - b);
+  const avgDelta = Math.max(3, Math.round(avgInterval));
+  const minDelta = Math.max(2, Math.round(minInterval));
 
-  uniqueDeltas.forEach((delta, index) => {
-    const targetDate = new Date(baseDate.getTime() + delta * 60000);
-    // target at 00 seconds
-    targetDate.setSeconds(0, 0);
+  // Collect candidate target dates
+  const candidates: {
+    date: Date;
+    reason: string;
+    priority: number;
+  } = [] as any;
 
-    const secondsRemaining = Math.round((targetDate.getTime() - currentTime.getTime()) / 1000);
+  const candidateList: Array<{
+    date: Date;
+    reason: string;
+    priority: number;
+  }> = [];
+
+  if (lastPink) {
+    const lastPinkMs = lastPink.timestamp.getTime();
+
+    // 1. Check initial standard cycle from last pink
+    const standardDeltas = [
+      { d: minDelta, reason: `Ciclo Rápido (+${minDelta} min da última rosa)`, p: 1 },
+      { d: avgDelta, reason: `Média Histórica (+${avgDelta} min)`, p: 1 },
+      { d: avgDelta + 3, reason: `Gatilho de Espelhamento (+${avgDelta + 3} min)`, p: 2 },
+      { d: avgDelta + 6, reason: `Ciclo Longo / Proteção (+${avgDelta + 6} min)`, p: 3 },
+    ];
+
+    standardDeltas.forEach(({ d, reason, p }) => {
+      const targetDate = new Date(lastPinkMs + d * 60000);
+      targetDate.setSeconds(0, 0);
+      // Valid if still in the future or active in current minute
+      if (targetDate.getTime() + 59999 >= nowMs) {
+        candidateList.push({ date: targetDate, reason, priority: p });
+      }
+    });
+
+    // 2. If standard deltas have passed (e.g. rosa atrasada), project upcoming multiples of avgInterval
+    let k = 1;
+    while (candidateList.length < 5 && k <= 15) {
+      k++;
+      const targetDate = new Date(lastPinkMs + k * avgDelta * 60000);
+      targetDate.setSeconds(0, 0);
+      if (targetDate.getTime() + 59999 >= nowMs) {
+        const deltaFromPink = Math.round((targetDate.getTime() - lastPinkMs) / 60000);
+        candidateList.push({
+          date: targetDate,
+          reason: `Novo Ciclo Calculado (+${deltaFromPink} min da última rosa)`,
+          priority: 2,
+        });
+      }
+    }
+  } else {
+    // No pink candle in history yet: project forward from current time
+    [2, 5, 8, 12].forEach((m, idx) => {
+      const targetDate = new Date(nowMs + m * 60000);
+      targetDate.setSeconds(0, 0);
+      candidateList.push({
+        date: targetDate,
+        reason: idx === 0 ? 'Ciclo Imediato de Entrada' : `Ciclo Padrão (+${m} min)`,
+        priority: idx === 0 ? 1 : 2,
+      });
+    });
+  }
+
+  // 3. Add Hot Ending Digit candidate if available
+  if (topEndings.length > 0) {
+    const hotDigit = topEndings[0].digit;
+    // Find next minute with this ending digit
+    for (let offsetMin = 0; offsetMin <= 12; offsetMin++) {
+      const testDate = new Date(nowMs + offsetMin * 60000);
+      if (testDate.getMinutes() % 10 === hotDigit) {
+        testDate.setSeconds(0, 0);
+        if (testDate.getTime() + 59999 >= nowMs) {
+          candidateList.push({
+            date: testDate,
+            reason: `Final Quente :X${hotDigit} (${topEndings[0].count}x histórico)`,
+            priority: 1,
+          });
+          break;
+        }
+      }
+    }
+  }
+
+  // 4. Consecutive blue recovery trigger: if 4+ blues in a row, next minute is high alert
+  if (consecutiveBlues >= 4) {
+    const triggerDate = new Date(nowMs + 60000); // next minute
+    triggerDate.setSeconds(0, 0);
+    if (triggerDate.getTime() + 59999 >= nowMs) {
+      candidateList.push({
+        date: triggerDate,
+        reason: `Alerta de Quebra (${consecutiveBlues} azuis seguidas)`,
+        priority: 1,
+      });
+    }
+  }
+
+  // Deduplicate by target minute string and filter out expired targets
+  const seenMinutes = new Set<string>();
+  const validCandidates: Array<{ date: Date; reason: string; priority: number }> = [];
+
+  // Sort candidates chronologically
+  candidateList.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  candidateList.forEach((cand) => {
+    const minStr = formatMinuteOnly(cand.date);
+    if (!seenMinutes.has(minStr) && cand.date.getTime() + 59999 >= nowMs) {
+      seenMinutes.add(minStr);
+      validCandidates.push(cand);
+    }
+  });
+
+  // Guarantee at least 4 future projections by extrapolating from the last candidate
+  while (validCandidates.length < 4) {
+    const lastDate = validCandidates.length > 0
+      ? validCandidates[validCandidates.length - 1].date
+      : new Date(nowMs);
+    const nextDate = new Date(lastDate.getTime() + avgDelta * 60000);
+    nextDate.setSeconds(0, 0);
+    const minStr = formatMinuteOnly(nextDate);
+    if (!seenMinutes.has(minStr)) {
+      seenMinutes.add(minStr);
+      validCandidates.push({
+        date: nextDate,
+        reason: `Próximo Ciclo (+${avgDelta} min)`,
+        priority: 2,
+      });
+    }
+  }
+
+  // Take top 4 projections and format
+  validCandidates.slice(0, 4).forEach((item, index) => {
+    const targetMinute = formatMinuteOnly(item.date);
+    const isActiveNow = targetMinute === currentMinuteStr;
+    const diffSecs = Math.round((item.date.getTime() - nowMs) / 1000);
+
+    const secondsRemaining = isActiveNow ? 0 : Math.max(0, diffSecs);
 
     let confidence: 'Alta' | 'Média' | 'Normal' = 'Normal';
-    if (index === 1) confidence = 'Alta';
-    else if (index === 0 && consecutiveBlues >= 3) confidence = 'Alta';
-    else if (index <= 2) confidence = 'Média';
+    if (isActiveNow || item.priority === 1 || (index === 0 && consecutiveBlues >= 3)) {
+      confidence = 'Alta';
+    } else if (index <= 1 || item.priority === 2) {
+      confidence = 'Média';
+    }
+
+    const deltaMinutes = lastPink
+      ? Math.max(1, Math.round((item.date.getTime() - lastPink.timestamp.getTime()) / 60000))
+      : Math.max(1, Math.round((item.date.getTime() - nowMs) / 60000));
 
     projections.push({
-      targetMinute: formatMinuteOnly(targetDate),
-      deltaMinutes: delta,
+      targetMinute,
+      deltaMinutes,
       secondsRemaining,
       confidence,
-      reason:
-        index === 0
-          ? `Ciclo Rápido (+${delta} min da última vela rosa)`
-          : index === 1
-          ? `Média Histórica Calculada (+${delta} min)`
-          : `Gatilho de Espelhamento (+${delta} min)`,
+      reason: item.reason,
     });
   });
 
