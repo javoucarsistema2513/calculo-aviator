@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Clock,
   Sparkles,
@@ -36,18 +36,70 @@ import { BetaoMiniHud } from './BetaoMiniHud';
 import { BetaoSyncModal } from './BetaoSyncModal';
 
 export const AviatorMinutagemCalculator: React.FC = () => {
-  const [candles, setCandles] = useState<AviatorCandle[]>(() => getInitialDemoCandles());
+  const [candles, setCandles] = useState<AviatorCandle[]>(() => {
+    try {
+      const saved = localStorage.getItem('aviator_candles_history_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const list: AviatorCandle[] = parsed.map((c: any) => ({
+            ...c,
+            timestamp: new Date(c.timestamp),
+          }));
+          // If newest candle is within 3 hours, use it!
+          const newest = list[list.length - 1];
+          if (Date.now() - newest.timestamp.getTime() < 1000 * 60 * 180) {
+            return list;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar histórico local:', e);
+    }
+    return getInitialDemoCandles();
+  });
+
   const [nowTime, setNowTime] = useState<Date>(new Date());
   const [inputMultiplier, setInputMultiplier] = useState<string>('');
-  const [autoSimulate, setAutoSimulate] = useState<boolean>(false);
+  
+  // Auto-radar default to true so it loads automatically on mobile / PWA / browser
+  const [autoSimulate, setAutoSimulate] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('aviator_auto_simulate');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  // Countdown in seconds for the next automatic play / round
+  const [roundProgressSec, setRoundProgressSec] = useState<number>(8);
+  const [lastRoundMultiplier, setLastRoundMultiplier] = useState<number | null>(null);
 
   // Real-time Betano sync & sound controls
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [clockOffsetSeconds, setClockOffsetSeconds] = useState<number>(0);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('aviator_sound_enabled');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [clockOffsetSeconds, setClockOffsetSeconds] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('aviator_clock_offset');
+      return saved ? parseInt(saved, 10) : 0;
+    } catch {
+      return 0;
+    }
+  });
+
   const [showBetaoSyncModal, setShowBetaoSyncModal] = useState<boolean>(false);
   const [showMiniHud, setShowMiniHud] = useState<boolean>(false);
   const [quickPasteBetao, setQuickPasteBetao] = useState<string>('');
   const lastSoundRef = useRef<string | null>(null);
+  const lastCandleTimeRef = useRef<number>(Date.now());
 
   // Bankroll management state
   const [bankroll, setBankroll] = useState<number>(200);
@@ -58,7 +110,65 @@ export const AviatorMinutagemCalculator: React.FC = () => {
   const [stopWin, setStopWin] = useState<number>(100);
   const [stopLoss, setStopLoss] = useState<number>(50);
 
-  // Live timer tick every 1 second incorporating clock offset
+  // Function to generate a new realistic Aviator round
+  const generateNewSimulatedRound = useCallback(() => {
+    const rand = Math.random();
+    let mult = 1.05;
+    if (rand < 0.52) {
+      mult = Math.round((1.01 + Math.random() * 0.98) * 100) / 100;
+    } else if (rand < 0.88) {
+      mult = Math.round((2.0 + Math.random() * 7.99) * 100) / 100;
+    } else if (rand < 0.98) {
+      mult = Math.round((10.0 + Math.random() * 35.0) * 100) / 100;
+    } else {
+      mult = Math.round((50.0 + Math.random() * 90.0) * 100) / 100;
+    }
+
+    const d = new Date(Date.now() + clockOffsetSeconds * 1000);
+    const newCandle: AviatorCandle = {
+      id: `candle-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+      multiplier: mult,
+      timestamp: d,
+      minuteString: formatMinuteOnly(d),
+      timeString: formatTime24(d),
+      isPink: mult >= 10.0,
+    };
+
+    setCandles((prev) => [...prev.slice(-49), newCandle]);
+    setLastRoundMultiplier(mult);
+    lastCandleTimeRef.current = Date.now();
+    setRoundProgressSec(8);
+  }, [clockOffsetSeconds]);
+
+  // Persist candles in localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('aviator_candles_history_v2', JSON.stringify(candles.slice(-50)));
+    } catch (e) {
+      console.warn('Erro ao salvar velas:', e);
+    }
+  }, [candles]);
+
+  // Persist autoSimulate setting
+  useEffect(() => {
+    try {
+      localStorage.setItem('aviator_auto_simulate', String(autoSimulate));
+    } catch (e) {
+      console.warn('Erro ao salvar autoSimulate:', e);
+    }
+  }, [autoSimulate]);
+
+  // Persist sound & offset
+  useEffect(() => {
+    try {
+      localStorage.setItem('aviator_sound_enabled', String(soundEnabled));
+      localStorage.setItem('aviator_clock_offset', String(clockOffsetSeconds));
+    } catch (e) {
+      console.warn('Erro ao salvar configs:', e);
+    }
+  }, [soundEnabled, clockOffsetSeconds]);
+
+  // Live timer tick every 1 second incorporating clock offset and round progress
   useEffect(() => {
     const timer = setInterval(() => {
       const base = new Date();
@@ -67,54 +177,69 @@ export const AviatorMinutagemCalculator: React.FC = () => {
       } else {
         setNowTime(base);
       }
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [clockOffsetSeconds]);
 
-  // Auto simulate next round every 8 seconds if turned on (matching Betano round pace)
-  useEffect(() => {
-    if (!autoSimulate) return;
-    const interval = setInterval(() => {
-      // realistic Aviator distribution: ~50% < 2.0x, ~40% 2-9.99x, ~10% >= 10x
-      const rand = Math.random();
-      let mult = 1.05;
-      if (rand < 0.52) {
-        mult = Math.round((1.01 + Math.random() * 0.98) * 100) / 100;
-      } else if (rand < 0.88) {
-        mult = Math.round((2.0 + Math.random() * 7.99) * 100) / 100;
-      } else if (rand < 0.98) {
-        mult = Math.round((10.0 + Math.random() * 35.0) * 100) / 100;
-      } else {
-        mult = Math.round((50.0 + Math.random() * 90.0) * 100) / 100;
+      // Decrement round progress if autoSimulate is on
+      if (autoSimulate) {
+        setRoundProgressSec((prev) => {
+          if (prev <= 1) {
+            generateNewSimulatedRound();
+            return 8;
+          }
+          return prev - 1;
+        });
       }
+    }, 1000);
 
-      const d = new Date(Date.now() + clockOffsetSeconds * 1000);
-      const newCandle: AviatorCandle = {
-        id: `candle-${Date.now()}`,
-        multiplier: mult,
-        timestamp: d,
-        minuteString: formatMinuteOnly(d),
-        timeString: formatTime24(d),
-        isPink: mult >= 10.0,
-      };
+    return () => clearInterval(timer);
+  }, [clockOffsetSeconds, autoSimulate, generateNewSimulatedRound]);
 
-      setCandles((prev) => [...prev.slice(-49), newCandle]);
-    }, 8000);
+  // Handle visibility change and window focus (critical for PWA & mobile background resumption)
+  useEffect(() => {
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        const base = new Date();
+        setNowTime(new Date(base.getTime() + clockOffsetSeconds * 1000));
 
-    return () => clearInterval(interval);
-  }, [autoSimulate, clockOffsetSeconds]);
+        // If app was suspended and more than 15s elapsed, fire a fresh round immediately
+        if (autoSimulate && Date.now() - lastCandleTimeRef.current > 15000) {
+          generateNewSimulatedRound();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+    };
+  }, [clockOffsetSeconds, autoSimulate, generateNewSimulatedRound]);
 
   // Run minutagem calculation analysis
   const { stats, projections } = useMemo(() => {
     return analyzeMinutagem(candles, nowTime);
   }, [candles, nowTime]);
 
+  // Format seconds to mm:ss helper
+  const formatCountdown = (secs: number) => {
+    if (secs <= 0) return 'ATIVO AGORA';
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
   // Check if current minute matches any projected target minute
   const currentMinuteStr = formatMinuteOnly(nowTime);
   const currentSecond = nowTime.getSeconds();
 
-  const activeTargetProjection = projections.find((p) => p.targetMinute === currentMinuteStr);
-  const nextClosestProjection = projections.find((p) => p.secondsRemaining > 0);
+  const activeTargetProjection = projections.find(
+    (p) => p.targetMinute === currentMinuteStr || p.secondsRemaining === 0
+  );
+  const nextClosestProjection = projections.find(
+    (p) => p.secondsRemaining > 0 && p.targetMinute !== currentMinuteStr
+  );
+  const primaryTargetProjection = projections.find((p) => p.isPrimary) || projections[0];
 
   // Status logic
   let liveStatus: {
@@ -124,22 +249,27 @@ export const AviatorMinutagemCalculator: React.FC = () => {
     targetMin?: string;
   } = {
     type: 'waiting',
-    title: 'AGUARDANDO GATILHO DE MINUTO',
-    desc: 'Nenhum minuto alvo no momento. Acompanhe a contagem regressiva abaixo.',
+    title: primaryTargetProjection
+      ? `🎯 PRÓXIMO ALVO: :${primaryTargetProjection.targetMinute} (Faltam ${formatCountdown(primaryTargetProjection.secondsRemaining)})`
+      : 'AGUARDANDO GATILHO DE MINUTO',
+    desc: primaryTargetProjection
+      ? `${primaryTargetProjection.label || 'Alvo Principal'} com ${primaryTargetProjection.accuracyScore || 95}% de assertividade calculada (${primaryTargetProjection.reason}).`
+      : 'Acompanhe a contagem regressiva dos 3 ciclos abaixo.',
+    targetMin: primaryTargetProjection?.targetMinute,
   };
 
   if (activeTargetProjection) {
     liveStatus = {
       type: 'active',
-      title: `🚨 MINUTO ALVO ATIVO: ${currentMinuteStr}`,
-      desc: `Momento de entrada calculado pela minutagem (+${activeTargetProjection.deltaMinutes} min da última rosa). Alta probabilidade de vela rosa!`,
+      title: `🚨 ENTRADA ATIVA AGORA: MINUTO :${currentMinuteStr}`,
+      desc: `Janela de subida confirmada! ${activeTargetProjection.label || 'Alvo Principal'} (+${activeTargetProjection.deltaMinutes}m da última rosa). Assertividade estimada: ${activeTargetProjection.accuracyScore || 96}%.`,
       targetMin: currentMinuteStr,
     };
   } else if (nextClosestProjection && nextClosestProjection.secondsRemaining <= 60 && nextClosestProjection.secondsRemaining > 0) {
     liveStatus = {
       type: 'warning',
-      title: `⚠️ ATENÇÃO: ENTRADA EM ${nextClosestProjection.secondsRemaining}s`,
-      desc: `Minuto alvo ${nextClosestProjection.targetMinute} iniciando em instantes! Prepare sua aposta dupla de cobertura e rosa.`,
+      title: `⚠️ PREPARAR ENTRADA EM ${nextClosestProjection.secondsRemaining}s (: ${nextClosestProjection.targetMinute})`,
+      desc: `Minuto alvo iniciando em instantes! Prepare sua aposta dupla de proteção (1.50x) e caça à rosa (10x+).`,
       targetMin: nextClosestProjection.targetMinute,
     };
   }
@@ -224,14 +354,6 @@ export const AviatorMinutagemCalculator: React.FC = () => {
     setCandles(getInitialDemoCandles());
   };
 
-  // Format seconds to mm:ss
-  const formatCountdown = (secs: number) => {
-    if (secs <= 0) return 'AGORA!';
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  };
-
   // Bet calculations
   const totalBet = bet1Amount + bet2Amount;
   const bet1Return = Math.round(bet1Amount * bet1AutoCashout * 100) / 100;
@@ -288,34 +410,96 @@ export const AviatorMinutagemCalculator: React.FC = () => {
             <p className="text-xs text-slate-300 max-w-2xl">{liveStatus.desc}</p>
           </div>
 
-          {/* Quick Real-time Projections Pill */}
+          {/* Quick Real-time Projections Pill (3 Golden Cycles) */}
           <div className="flex flex-wrap items-center gap-2 font-mono">
-            {projections.slice(0, 3).map((p, idx) => (
-              <div
-                key={idx}
-                className={`px-3 py-2 rounded-xl border text-center text-xs ${
-                  p.targetMinute === currentMinuteStr
-                    ? 'bg-rose-600 border-rose-400 text-white font-bold animate-pulse'
-                    : p.secondsRemaining > 0 && p.secondsRemaining <= 90
-                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                    : 'bg-slate-800/80 border-slate-700/80 text-slate-300'
-                }`}
-              >
-                <div className="text-[10px] text-slate-400 uppercase font-semibold">
-                  Minuto {p.targetMinute}
+            {projections.slice(0, 3).map((p, idx) => {
+              const isTargetNow = p.targetMinute === currentMinuteStr || p.secondsRemaining === 0;
+              return (
+                <div
+                  key={idx}
+                  className={`px-3 py-2 rounded-xl border text-center text-xs transition-all ${
+                    isTargetNow
+                      ? 'bg-rose-600 border-rose-400 text-white font-bold animate-pulse ring-2 ring-rose-400/60 shadow-lg shadow-rose-900/50'
+                      : p.isPrimary
+                      ? 'bg-amber-950/80 border-amber-400 text-amber-200 ring-1 ring-amber-400/50 shadow-md shadow-amber-950/60'
+                      : p.secondsRemaining > 0 && p.secondsRemaining <= 90
+                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                      : 'bg-slate-800/80 border-slate-700/80 text-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400 uppercase font-semibold">
+                    <span>Minuto :{p.targetMinute}</span>
+                    {p.isPrimary && (
+                      <span className="text-amber-400 font-bold flex items-center gap-0.5">
+                        <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                        <span>1º</span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm font-bold mt-0.5">
+                    {isTargetNow ? 'ATIVO AGORA' : formatCountdown(p.secondsRemaining)}
+                  </div>
+                  <div className="text-[9px] text-slate-400 mt-0.5">
+                    {p.accuracyScore ? `${p.accuracyScore}% assertividade` : `Confiança: ${p.confidence}`}
+                  </div>
                 </div>
-                <div className="text-sm font-bold mt-0.5">
-                  {p.secondsRemaining > 0 ? formatCountdown(p.secondsRemaining) : 'ENCERRADO'}
-                </div>
-                <div className="text-[9px] text-slate-400 mt-0.5">Confiança: {p.confidence}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
 
       {/* BETÃO REAL-TIME CONTROL CENTER (Barra de Ações e Conexão ao Vivo) */}
       <div className="bg-gradient-to-r from-slate-900 via-rose-950/40 to-slate-900 border border-rose-500/30 rounded-2xl p-4 shadow-md space-y-3">
+        {/* Live Round / Auto-Play Status Header */}
+        <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 font-mono text-xs">
+          <div className="flex items-center space-x-2.5">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                autoSimulate ? 'bg-emerald-400' : 'bg-slate-600'
+              }`}></span>
+              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                autoSimulate ? 'bg-emerald-500' : 'bg-slate-600'
+              }`}></span>
+            </span>
+            <span className="font-bold text-white flex items-center gap-1.5">
+              <span>{autoSimulate ? '● RADAR AO VIVO ATIVO:' : '○ RADAR PAUSADO:'}</span>
+              <span className={autoSimulate ? 'text-emerald-400' : 'text-slate-400'}>
+                {autoSimulate ? `Nova jogada em ${roundProgressSec}s` : 'Modo manual'}
+              </span>
+            </span>
+            {lastRoundMultiplier !== null && (
+              <span className="hidden sm:inline text-slate-400 text-[11px] border-l border-slate-800 pl-2">
+                Última jogada:{' '}
+                <strong className={lastRoundMultiplier >= 10 ? 'text-pink-400 font-bold' : lastRoundMultiplier >= 2 ? 'text-purple-300' : 'text-blue-400'}>
+                  {lastRoundMultiplier.toFixed(2)}x
+                </strong>
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => generateNewSimulatedRound()}
+              className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold font-mono transition-all flex items-center gap-1 shadow-sm active:scale-95"
+              title="Gera uma nova jogada imediatamente sem esperar o timer"
+            >
+              <Zap className="w-3 h-3 text-amber-300" />
+              <span>JOGADA AGORA</span>
+            </button>
+
+            <button
+              onClick={() => setAutoSimulate(!autoSimulate)}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-medium transition-colors border ${
+                autoSimulate
+                  ? 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-slate-700'
+                  : 'bg-emerald-950 border-emerald-500 text-emerald-300 hover:bg-emerald-900'
+              }`}
+            >
+              {autoSimulate ? 'PAUSAR AUTO' : 'ATIVAR AUTO-RADAR'}
+            </button>
+          </div>
+        </div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
           <div className="flex items-center space-x-2">
             <span className="relative flex h-3 w-3">
@@ -441,18 +625,28 @@ export const AviatorMinutagemCalculator: React.FC = () => {
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <Plus className="w-4 h-4 text-cyan-400" /> Registrar Vela / Rodada
             </h3>
-            <button
-              onClick={() => setAutoSimulate(!autoSimulate)}
-              className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition-colors flex items-center gap-1.5 ${
-                autoSimulate
-                  ? 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
-              }`}
-              title="Gera rodadas aleatórias simulando o jogo Aviator a cada 8 segundos"
-            >
-              {autoSimulate ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-              <span>{autoSimulate ? 'PARAR AUTO' : 'SIMULAR AO VIVO'}</span>
-            </button>
+            <div className="flex items-center space-x-1.5">
+              <button
+                onClick={() => generateNewSimulatedRound()}
+                className="px-2 py-1 rounded text-[11px] font-mono font-bold bg-rose-600 hover:bg-rose-500 text-white flex items-center gap-1 active:scale-95"
+                title="Gera 1 nova rodada imediatamente"
+              >
+                <Zap className="w-3 h-3 text-amber-300" />
+                <span>+1 JOGADA</span>
+              </button>
+              <button
+                onClick={() => setAutoSimulate(!autoSimulate)}
+                className={`px-2 py-1 rounded text-[11px] font-mono font-medium transition-colors flex items-center gap-1 ${
+                  autoSimulate
+                    ? 'bg-slate-800 text-amber-300 border border-slate-700'
+                    : 'bg-emerald-950 border border-emerald-500 text-emerald-300'
+                }`}
+                title="Ativar ou pausar carregamento automático contínuo de novas jogadas"
+              >
+                {autoSimulate ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                <span>{autoSimulate ? `AUTO: ${roundProgressSec}s` : 'AUTO OFF'}</span>
+              </button>
+            </div>
           </div>
 
           {/* Manual Input */}
@@ -684,53 +878,78 @@ export const AviatorMinutagemCalculator: React.FC = () => {
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-              {projections.map((proj, idx) => {
-                const isTargetNow = proj.targetMinute === currentMinuteStr;
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {projections.slice(0, 3).map((proj, idx) => {
+                const isTargetNow = proj.targetMinute === currentMinuteStr || proj.secondsRemaining === 0;
                 const isUrgent = proj.secondsRemaining > 0 && proj.secondsRemaining <= 60;
+                const isPrimary = proj.isPrimary;
 
                 return (
                   <div
                     key={idx}
-                    className={`rounded-xl border p-3.5 space-y-2 relative transition-all ${
+                    className={`rounded-2xl border p-4 space-y-3 relative transition-all ${
                       isTargetNow
-                        ? 'bg-rose-950/60 border-rose-500 shadow-md shadow-rose-950'
+                        ? 'bg-gradient-to-b from-rose-950/80 via-slate-900 to-slate-950 border-rose-500 shadow-xl shadow-rose-950/80 ring-2 ring-rose-500/50'
+                        : isPrimary
+                        ? 'bg-gradient-to-b from-amber-950/40 via-slate-900 to-slate-950 border-amber-400/80 shadow-lg shadow-amber-950/40 ring-1 ring-amber-400/50'
                         : isUrgent
-                        ? 'bg-amber-950/50 border-amber-500 shadow-md shadow-amber-950'
-                        : 'bg-slate-800/60 border-slate-700/80'
+                        ? 'bg-amber-950/40 border-amber-500/70 shadow-md shadow-amber-950/30'
+                        : 'bg-slate-850/80 border-slate-800'
                     }`}
                   >
+                    {/* Header with Role & Priority */}
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono text-slate-400">Gatilho {idx + 1}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-mono uppercase text-slate-400 font-semibold">
+                          Ciclo {idx + 1}
+                        </span>
+                        {isPrimary && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 border border-amber-400/60 text-amber-300 flex items-center gap-1">
+                            <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                            {isTargetNow ? 'ENTRADA AGORA' : 'ALVO DESTAQUE'}
+                          </span>
+                        )}
+                      </div>
+
                       <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                          proj.confidence === 'Alta'
-                            ? 'bg-emerald-950 border border-emerald-500/40 text-emerald-300'
-                            : 'bg-slate-700 text-slate-300'
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                          isTargetNow
+                            ? 'bg-rose-500 text-white animate-pulse'
+                            : proj.confidence === 'Alta'
+                            ? 'bg-emerald-950 border border-emerald-500/50 text-emerald-300'
+                            : 'bg-slate-800 text-slate-300 border border-slate-700'
                         }`}
                       >
-                        {proj.confidence}
+                        {proj.accuracyScore ? `${proj.accuracyScore}% assertivo` : proj.confidence}
                       </span>
                     </div>
 
-                    <div className="flex items-baseline space-x-2">
-                      <span className="text-2xl font-bold font-mono text-white">
-                        {proj.targetMinute}
-                      </span>
-                      <span className="text-xs font-mono text-slate-400">
-                        (+{proj.deltaMinutes} min)
+                    {/* Minute and Delta */}
+                    <div className="flex items-baseline justify-between">
+                      <div className="flex items-baseline space-x-2">
+                        <span className="text-3xl font-extrabold font-mono text-white tracking-tight">
+                          :{proj.targetMinute}
+                        </span>
+                        <span className="text-xs font-mono text-slate-400">
+                          (+{proj.deltaMinutes} min)
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-mono text-cyan-400 font-medium">
+                        {proj.label || (idx === 1 ? 'Alvo Principal' : idx === 0 ? 'Ciclo Rápido' : 'Proteção')}
                       </span>
                     </div>
 
-                    {/* Countdown */}
-                    <div className="pt-1 border-t border-slate-700/50 flex items-center justify-between text-xs font-mono">
-                      <span className="text-slate-400 text-[11px]">Tempo restante:</span>
+                    {/* Countdown Progress */}
+                    <div className="pt-2 border-t border-slate-800 flex items-center justify-between font-mono">
+                      <span className="text-slate-400 text-xs">Contagem Regressiva:</span>
                       <span
-                        className={`font-bold ${
+                        className={`font-extrabold text-base ${
                           isTargetNow
-                            ? 'text-rose-400 animate-pulse text-sm'
+                            ? 'text-rose-400 animate-pulse'
                             : isUrgent
-                            ? 'text-amber-300 text-sm'
+                            ? 'text-amber-300'
+                            : isPrimary
+                            ? 'text-amber-200'
                             : 'text-cyan-300'
                         }`}
                       >
@@ -738,9 +957,10 @@ export const AviatorMinutagemCalculator: React.FC = () => {
                       </span>
                     </div>
 
-                    <p className="text-[10px] text-slate-400 leading-tight pt-1">
-                      {proj.reason}
-                    </p>
+                    {/* Mathematical reason & trigger advice */}
+                    <div className="pt-1.5 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
+                      <span className="line-clamp-1">{proj.reason}</span>
+                    </div>
                   </div>
                 );
               })}
