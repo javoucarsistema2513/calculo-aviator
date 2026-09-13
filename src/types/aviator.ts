@@ -15,6 +15,9 @@ export interface MinutagemProjection {
   secondsRemaining: number;
   confidence: 'Alta' | 'Média' | 'Normal';
   reason: string;
+  isPrimary?: boolean;
+  accuracyScore?: number; // e.g. 96
+  label?: string; // e.g. "Alvo Principal", "Ciclo Rápido", "Proteção"
 }
 
 export interface MinutagemStats {
