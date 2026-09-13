@@ -56,21 +56,13 @@ export function analyzeMinutagem(candles: AviatorCandle[], currentTime: Date = n
     }
   }
 
-  // Calculate recency-weighted average of pink intervals (giving higher weight to recent table behavior)
-  let weightedIntervalSum = 0;
-  let weightSum = 0;
-  intervals.forEach((val, idx) => {
-    const weight = Math.pow(1.35, idx + 1); // Exponential recency weight
-    weightedIntervalSum += val * weight;
-    weightSum += weight;
-  });
-
+  // Calculate average, min, max interval between pink candles
   const avgInterval =
-    intervals.length > 0 && weightSum > 0
-      ? Math.round((weightedIntervalSum / weightSum) * 10) / 10
+    intervals.length > 0
+      ? Math.round((intervals.reduce((a, b) => a + b, 0) / intervals.length) * 10) / 10
       : 5.0; // fallback standard 5 mins
   const minInterval = intervals.length > 0 ? Math.min(...intervals) : 3.0;
-  const maxInterval = intervals.length > 0 ? Math.max(...intervals) : 9.0;
+  const maxInterval = intervals.length > 0 ? Math.max(...intervals) : 10.0;
 
   // Last pink info
   const lastPink = pinkCandles.length > 0 ? pinkCandles[pinkCandles.length - 1] : null;
@@ -114,191 +106,124 @@ export function analyzeMinutagem(candles: AviatorCandle[], currentTime: Date = n
     marketState,
   };
 
-  // High-precision Aviator calculation: Exactly 3 strategic targets with 1 primary focus
+  // Generate projections based on the last pink and current time
+  const projections: MinutagemProjection[] = [];
   const nowMs = currentTime.getTime();
   const currentMinuteStr = formatMinuteOnly(currentTime);
 
-  // Frequency of pink endings to identify hot minute digits
-  const topEndings = Object.entries(endingsFreq)
-    .map(([digit, count]) => ({ digit: parseInt(digit, 10), count }))
-    .filter((item) => item.count > 0)
-    .sort((a, b) => b.count - a.count);
-  const hotDigit = topEndings.length > 0 ? topEndings[0].digit : null;
+  const avgDelta = Math.max(3, Math.round(avgInterval));
+  const minDelta = Math.max(2, Math.round(minInterval));
 
-  const roundedAvg = Math.max(3, Math.round(avgInterval));
-  const roundedMin = Math.max(2, Math.round(minInterval));
-
-  // Determine the 3 exact dates: Target 1 (Rápido), Target 2 (Principal), Target 3 (Proteção)
-  let dateT1: Date;
-  let dateT2: Date;
-  let dateT3: Date;
-  let reasonT1 = '';
-  let reasonT2 = '';
-  let reasonT3 = '';
+  const candidateList: Array<{
+    date: Date;
+    reason: string;
+    priority: number;
+  }> = [];
 
   if (lastPink) {
     const lastPinkMs = lastPink.timestamp.getTime();
-    const elapsedMins = (nowMs - lastPinkMs) / 60000;
 
-    // TARGET 2: ALVO PRINCIPAL (A Média Ponderada Histórica)
-    if (elapsedMins <= roundedAvg + 0.8) {
-      // Standard upcoming or active average target
-      dateT2 = new Date(lastPinkMs + roundedAvg * 60000);
-      reasonT2 = `Média Ponderada Exata (+${roundedAvg} min da rosa)`;
-    } else {
-      // Rosa atrasada: calcular o próximo ciclo harmônico ou final quente
-      let cycleMult = Math.ceil(elapsedMins / roundedAvg);
-      let targetMs = lastPinkMs + cycleMult * roundedAvg * 60000;
-      if (targetMs + 59999 < nowMs) {
-        cycleMult += 1;
-        targetMs = lastPinkMs + cycleMult * roundedAvg * 60000;
+    // Standard deltas from last pink
+    const standardDeltas = [
+      { d: minDelta, reason: `Ciclo Rápido (+${minDelta} min da última rosa)`, priority: 1 },
+      { d: avgDelta, reason: `Média Histórica (+${avgDelta} min)`, priority: 1 },
+      { d: avgDelta + 3, reason: `Gatilho de Espelhamento (+${avgDelta + 3} min)`, priority: 2 },
+      { d: avgDelta + 6, reason: `Ciclo Longo / Proteção (+${avgDelta + 6} min)`, priority: 3 },
+    ];
+
+    standardDeltas.forEach(({ d, reason, priority }) => {
+      const targetDate = new Date(lastPinkMs + d * 60000);
+      targetDate.setSeconds(0, 0);
+      if (targetDate.getTime() + 59999 >= nowMs) {
+        candidateList.push({ date: targetDate, reason, priority });
       }
-      dateT2 = new Date(targetMs);
-      const deltaFromPink = Math.round((dateT2.getTime() - lastPinkMs) / 60000);
-      reasonT2 = `Ciclo Harmônico Atrasado (+${deltaFromPink} min da rosa)`;
-    }
-    dateT2.setSeconds(0, 0);
+    });
 
-    // TARGET 1: CICLO RÁPIDO / GATILHO IMEDIATO
-    const rawT1 = new Date(lastPinkMs + roundedMin * 60000);
-    rawT1.setSeconds(0, 0);
-    if (rawT1.getTime() + 59999 >= nowMs && rawT1.getTime() < dateT2.getTime()) {
-      dateT1 = rawT1;
-      reasonT1 = `Ciclo Rápido (+${roundedMin} min da última rosa)`;
-    } else if (consecutiveBlues >= 3) {
-      dateT1 = new Date(nowMs + 60000); // next minute immediately
-      dateT1.setSeconds(0, 0);
-      reasonT1 = `Quebra de Xadrez (${consecutiveBlues} azuis seguidas)`;
-    } else {
-      // Intermediate step or 1 min before Target 2
-      const stepBeforeT2 = new Date(dateT2.getTime() - 2 * 60000);
-      if (stepBeforeT2.getTime() + 59999 >= nowMs && stepBeforeT2.getTime() < dateT2.getTime()) {
-        dateT1 = stepBeforeT2;
-        reasonT1 = `Pré-Gatilho de Confirmação (-2 min do Alvo)`;
-      } else {
-        dateT1 = new Date(nowMs + 60000);
-        dateT1.setSeconds(0, 0);
-        reasonT1 = `Ciclo Imediato de Entrada`;
+    // If some standard deltas have passed, project upcoming multiples of the average
+    let k = 1;
+    while (candidateList.length < 5 && k <= 12) {
+      k++;
+      const targetDate = new Date(lastPinkMs + k * avgDelta * 60000);
+      targetDate.setSeconds(0, 0);
+      if (targetDate.getTime() + 59999 >= nowMs) {
+        const deltaFromPink = Math.round((targetDate.getTime() - lastPinkMs) / 60000);
+        candidateList.push({
+          date: targetDate,
+          reason: `Novo Ciclo (+${deltaFromPink} min da última rosa)`,
+          priority: 2,
+        });
       }
-    }
-
-    // TARGET 3: CICLO DE PROTEÇÃO / ESPELHAMENTO LONGO
-    const mirrorOffset = Math.max(3, roundedAvg > 5 ? 3 : 4);
-    const rawT3 = new Date(dateT2.getTime() + mirrorOffset * 60000);
-    rawT3.setSeconds(0, 0);
-    dateT3 = rawT3;
-    const deltaT3FromPink = Math.round((dateT3.getTime() - lastPinkMs) / 60000);
-    reasonT3 = `Espelhamento / Proteção (+${deltaT3FromPink} min)`;
-
-    // If hot ending digit is active and fits nicely into Target 3 or Target 1
-    if (hotDigit !== null && dateT2.getMinutes() % 10 === hotDigit) {
-      reasonT2 += ` [Final Quente :X${hotDigit}]`;
     }
   } else {
-    // No pink candle logged yet: project forward relative to current time
-    dateT1 = new Date(nowMs + 2 * 60000);
-    dateT1.setSeconds(0, 0);
-    reasonT1 = 'Ciclo Rápido Imediato (+2 min)';
-
-    dateT2 = new Date(nowMs + 5 * 60000);
-    dateT2.setSeconds(0, 0);
-    reasonT2 = 'Média Padrão Aviator (+5 min)';
-
-    dateT3 = new Date(nowMs + 9 * 60000);
-    dateT3.setSeconds(0, 0);
-    reasonT3 = 'Ciclo de Proteção Longo (+9 min)';
+    // No pink candle in history yet: project forward relative to now
+    [2, 5, 8, 12].forEach((m, idx) => {
+      const targetDate = new Date(nowMs + m * 60000);
+      targetDate.setSeconds(0, 0);
+      candidateList.push({
+        date: targetDate,
+        reason: idx === 0 ? 'Ciclo Imediato de Entrada' : `Ciclo Padrão (+${m} min)`,
+        priority: idx === 0 ? 1 : 2,
+      });
+    });
   }
 
-  // Assemble the 3 targets in chronological order
-  const rawList = [
-    { date: dateT1, reason: reasonT1, baseType: 'Rapido' as const },
-    { date: dateT2, reason: reasonT2, baseType: 'Principal' as const },
-    { date: dateT3, reason: reasonT3, baseType: 'Protecao' as const },
-  ];
+  // Deduplicate by target minute string and filter out expired targets
+  const seenMinutes = new Set<string>();
+  const validCandidates: Array<{ date: Date; reason: string; priority: number }> = [];
 
-  // Sort by time
-  rawList.sort((a, b) => a.date.getTime() - b.date.getTime());
+  candidateList.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-  // Ensure all dates are unique minutes and >= current minute
-  const usedMinutes = new Set<string>();
-  const refinedDates: Array<{ date: Date; reason: string; baseType: 'Rapido' | 'Principal' | 'Protecao' }> = [];
-
-  rawList.forEach((item) => {
-    let d = new Date(item.date);
-    d.setSeconds(0, 0);
-
-    // If expired, push forward
-    while (d.getTime() + 59999 < nowMs || usedMinutes.has(formatMinuteOnly(d))) {
-      d = new Date(d.getTime() + 60000);
-      d.setSeconds(0, 0);
+  candidateList.forEach((cand) => {
+    const minStr = formatMinuteOnly(cand.date);
+    if (!seenMinutes.has(minStr) && cand.date.getTime() + 59999 >= nowMs) {
+      seenMinutes.add(minStr);
+      validCandidates.push(cand);
     }
-    usedMinutes.add(formatMinuteOnly(d));
-    refinedDates.push({ date: d, reason: item.reason, baseType: item.baseType });
   });
 
-  // Re-sort chronologically after push
-  refinedDates.sort((a, b) => a.date.getTime() - b.date.getTime());
+  while (validCandidates.length < 4) {
+    const lastDate =
+      validCandidates.length > 0
+        ? validCandidates[validCandidates.length - 1].date
+        : new Date(nowMs);
+    const nextDate = new Date(lastDate.getTime() + avgDelta * 60000);
+    nextDate.setSeconds(0, 0);
+    const minStr = formatMinuteOnly(nextDate);
+    if (!seenMinutes.has(minStr)) {
+      seenMinutes.add(minStr);
+      validCandidates.push({
+        date: nextDate,
+        reason: `Próximo Ciclo (+${avgDelta} min)`,
+        priority: 2,
+      });
+    }
+  }
 
-  // Exactly 3 targets!
-  const finalCandidates = refinedDates.slice(0, 3);
-
-  // Check if any target is currently active
-  const activeIndex = finalCandidates.findIndex((item) => formatMinuteOnly(item.date) === currentMinuteStr);
-
-  const projections: MinutagemProjection[] = finalCandidates.map((item, index) => {
+  validCandidates.slice(0, 4).forEach((item, index) => {
     const targetMinute = formatMinuteOnly(item.date);
     const isActiveNow = targetMinute === currentMinuteStr;
     const diffSecs = Math.round((item.date.getTime() - nowMs) / 1000);
+    // When minute is active, target has arrived: secondsRemaining is 0, but it remains visible throughout the full minute (until item.date + 60s)
     const secondsRemaining = isActiveNow ? 0 : Math.max(0, diffSecs);
+
+    let confidence: 'Alta' | 'Média' | 'Normal' = 'Normal';
+    if (isActiveNow || item.priority === 1 || (index === 0 && consecutiveBlues >= 3)) {
+      confidence = 'Alta';
+    } else if (index <= 1 || item.priority === 2) {
+      confidence = 'Média';
+    }
 
     const deltaMinutes = lastPink
       ? Math.max(1, Math.round((item.date.getTime() - lastPink.timestamp.getTime()) / 60000))
       : Math.max(1, Math.round((item.date.getTime() - nowMs) / 60000));
 
-    // "e ficar uma": Only ONE target gets designated as isPrimary
-    let isPrimary = false;
-    if (activeIndex !== -1) {
-      // If there's an active minute right now, it is the primary focus!
-      isPrimary = index === activeIndex;
-    } else {
-      // Otherwise, the Principal target (or index 1 / closest high-probability) is the single primary focus
-      const principalIndex = finalCandidates.findIndex((c) => c.baseType === 'Principal');
-      isPrimary = principalIndex !== -1 ? index === principalIndex : index === 0;
-    }
-
-    // High accuracy scoring (Assertividade)
-    let accuracyScore = 88;
-    let label = 'Ciclo Secundário';
-    let confidence: 'Alta' | 'Média' | 'Normal' = 'Média';
-
-    if (isActiveNow) {
-      confidence = 'Alta';
-      accuracyScore = marketState === 'Pagador' ? 98 : 95;
-      label = '🎯 ENTRADA ATIVA AGORA';
-    } else if (item.baseType === 'Principal') {
-      confidence = 'Alta';
-      accuracyScore = marketState === 'Pagador' ? 96 : 93;
-      label = '★ ALVO PRINCIPAL';
-    } else if (item.baseType === 'Rapido') {
-      confidence = consecutiveBlues >= 3 ? 'Alta' : 'Média';
-      accuracyScore = consecutiveBlues >= 3 ? 91 : 87;
-      label = '⚡ CICLO RÁPIDO';
-    } else {
-      confidence = 'Normal';
-      accuracyScore = 82;
-      label = '🛡 CICLO PROTEÇÃO';
-    }
-
-    return {
+    projections.push({
       targetMinute,
       deltaMinutes,
       secondsRemaining,
       confidence,
       reason: item.reason,
-      isPrimary,
-      accuracyScore,
-      label,
-    };
+    });
   });
 
   return { stats, projections };
