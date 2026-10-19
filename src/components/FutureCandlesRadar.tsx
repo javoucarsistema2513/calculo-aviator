@@ -144,12 +144,20 @@ export const FutureCandlesRadar: React.FC<FutureCandlesRadarProps> = ({ candles,
         }),
       });
 
-      const data = await res.json();
-      if (data.success && data.audit) {
+      const rawText = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        setAuditError('Serviço de IA temporariamente indisponível. Tente novamente.');
+        return;
+      }
+
+      if (data?.success && data?.audit) {
         setAiAudit(data.audit);
         soundFx.playPinkWin();
       } else {
-        setAuditError(data.error || 'Não foi possível concluir a auditoria da IA no momento.');
+        setAuditError(data?.error || 'Não foi possível concluir a auditoria da IA no momento.');
       }
     } catch (err: unknown) {
       setAuditError('Falha na conexão com o servidor de IA.');

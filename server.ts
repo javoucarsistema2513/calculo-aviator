@@ -16,6 +16,24 @@ const PORT = 3000;
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
+// Express JSON body-parser error handling (prevents HTML error pages on payload/syntax errors)
+app.use((err: any, req: Request, res: Response, next: any) => {
+  if (err && (err.type === 'entity.too.large' || err.status === 413)) {
+    return res.status(413).json({
+      success: false,
+      error: 'A imagem enviada excedeu o limite de tamanho. O aplicativo agora comprime imagens automaticamente.',
+    });
+  }
+  if (err) {
+    return res.status(400).json({
+      success: false,
+      error: 'Requisição inválida enviada ao servidor.',
+      details: err.message || String(err),
+    });
+  }
+  next();
+});
+
 // Server-side Gemini initialization
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -95,201 +113,243 @@ Aplique com o máximo de rigor os ensinamentos dos Módulos dos Segredos do Avia
    - Indique estratégia de saída (1ª Mão no 1.49x, 2ª Mão buscar alvo).
 `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: AVIATOR_KNOWLEDGE_PROMPT },
-            {
-              inlineData: {
-                data: cleanBase64,
-                mimeType,
+    // Models to try in sequence if one experiences transient high demand (503/429)
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest'];
+    let lastError: any = null;
+    let responseText = '';
+
+    for (const modelName of modelsToTry) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const geminiResponse = await ai.models.generateContent({
+            model: modelName,
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  { text: AVIATOR_KNOWLEDGE_PROMPT },
+                  {
+                    inlineData: {
+                      data: cleanBase64,
+                      mimeType,
+                    },
+                  },
+                  { text: promptText },
+                ],
               },
-            },
-            { text: promptText },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            extractedCandles: {
-              type: Type.ARRAY,
-              items: { type: Type.NUMBER },
-              description: 'Lista de multiplicadores lidos na imagem com decimais exatos (ex: [2.45, 1.37, 10.50, 1.12])',
-            },
-            tableState: {
-              type: Type.STRING,
-              description: 'Estado da mesa: PAGUE, RECOLHE, FALSO_PAGUE ou ALTA_EXPANSAO',
-            },
-            dominantPattern: {
-              type: Type.STRING,
-              description: 'Padrão ou gatilho predominante detectado na imagem',
-            },
-            targetCandle: {
-              type: Type.STRING,
-              description: 'Vela alvo recomendada: ROXA, ROSA ou SUPER_ROSA',
-            },
-            targetMultiplier: {
-              type: Type.STRING,
-              description: 'Multiplicador alvo (ex: 2.00x a 3.50x ou 10.00x+)',
-            },
-            projectedTime: {
-              type: Type.STRING,
-              description: 'Previsão de horário/minuto da entrada (ex: Minuto :35 com tolerância no :36)',
-            },
-            confidence: {
-              type: Type.NUMBER,
-              description: 'Probabilidade de acerto em porcentagem (ex: 98.5)',
-            },
-            keyFindings: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: 'Principais conclusões e gatilhos detectados no gráfico',
-            },
-            entryStrategy: {
-              type: Type.STRING,
-              description: 'Como fazer a entrada (quantas mãos, casas recomendadas)',
-            },
-            protectionAdvice: {
-              type: Type.STRING,
-              description: 'Instrução de auto cashout seguro (1.49x ou 2.00x)',
-            },
-            warningAlert: {
-              type: Type.STRING,
-              description: 'Alerta de risco (ex: cuidado com final 7 ou mesa em recolhe), se houver',
-            },
-            roundDetails: {
-              type: Type.ARRAY,
-              items: {
+            ],
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
                 type: Type.OBJECT,
                 properties: {
-                  roundNumber: {
-                    type: Type.STRING,
-                    description: 'Identificador ou número da rodada (ex: #84920 ou Rodada 1)',
+                  extractedCandles: {
+                    type: Type.ARRAY,
+                    items: { type: Type.NUMBER },
+                    description: 'Lista de multiplicadores lidos na imagem com decimais exatos (ex: [2.45, 1.37, 10.50, 1.12])',
                   },
-                  multiplier: {
+                  tableState: {
+                    type: Type.STRING,
+                    description: 'Estado da mesa: PAGUE, RECOLHE, FALSO_PAGUE ou ALTA_EXPANSAO',
+                  },
+                  dominantPattern: {
+                    type: Type.STRING,
+                    description: 'Padrão ou gatilho predominante detectado na imagem',
+                  },
+                  targetCandle: {
+                    type: Type.STRING,
+                    description: 'Vela alvo recomendada: ROXA, ROSA ou SUPER_ROSA',
+                  },
+                  targetMultiplier: {
+                    type: Type.STRING,
+                    description: 'Multiplicador alvo (ex: 2.00x a 3.50x ou 10.00x+)',
+                  },
+                  projectedTime: {
+                    type: Type.STRING,
+                    description: 'Previsão de horário/minuto da entrada (ex: Minuto :35 com tolerância no :36)',
+                  },
+                  confidence: {
                     type: Type.NUMBER,
-                    description: 'Multiplicador numérico exato com 2 casas decimais',
+                    description: 'Probabilidade de acerto em porcentagem (ex: 98.5)',
                   },
-                  fullText: {
+                  keyFindings: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: 'Principais conclusões e gatilhos detectados no gráfico',
+                  },
+                  entryStrategy: {
                     type: Type.STRING,
-                    description: 'Texto completo da vela (ex: "14.82x")',
+                    description: 'Como fazer a entrada (quantas mãos, casas recomendadas)',
                   },
-                  integerPart: {
-                    type: Type.NUMBER,
-                    description: 'Parte inteira da vela (ex: 14)',
-                  },
-                  decimalPart: {
-                    type: Type.NUMBER,
-                    description: 'Parte decimal da vela (ex: 82)',
-                  },
-                  finalDigit: {
-                    type: Type.NUMBER,
-                    description: 'Último dígito centésimo (ex: 2)',
-                  },
-                  finalDigitAnalysis: {
+                  protectionAdvice: {
                     type: Type.STRING,
-                    description: 'Diagnóstico do final decimal (ex: Final 7: 80% RED ou Final 1: 80% Roxo)',
+                    description: 'Instrução de auto cashout seguro (1.49x ou 2.00x)',
                   },
-                  parity: {
+                  warningAlert: {
                     type: Type.STRING,
-                    description: 'Paridade da rodada/casa: PAR ou ÍMPAR',
+                    description: 'Alerta de risco (ex: cuidado com final 7 ou mesa em recolhe), se houver',
                   },
-                  color: {
-                    type: Type.STRING,
-                    description: 'Cor da vela: AZUL, ROXA ou ROSA',
+                  roundDetails: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        roundNumber: {
+                          type: Type.STRING,
+                          description: 'Identificador ou número da rodada (ex: #84920 ou Rodada 1)',
+                        },
+                        multiplier: {
+                          type: Type.NUMBER,
+                          description: 'Multiplicador numérico exato com 2 casas decimais',
+                        },
+                        fullText: {
+                          type: Type.STRING,
+                          description: 'Texto completo da vela (ex: "14.82x")',
+                        },
+                        integerPart: {
+                          type: Type.NUMBER,
+                          description: 'Parte inteira da vela (ex: 14)',
+                        },
+                        decimalPart: {
+                          type: Type.NUMBER,
+                          description: 'Parte decimal da vela (ex: 82)',
+                        },
+                        finalDigit: {
+                          type: Type.NUMBER,
+                          description: 'Último dígito centésimo (ex: 2)',
+                        },
+                        finalDigitAnalysis: {
+                          type: Type.STRING,
+                          description: 'Diagnóstico do final decimal (ex: Final 7: 80% RED ou Final 1: 80% Roxo)',
+                        },
+                        parity: {
+                          type: Type.STRING,
+                          description: 'Paridade da rodada/casa: PAR ou ÍMPAR',
+                        },
+                        color: {
+                          type: Type.STRING,
+                          description: 'Cor da vela: AZUL, ROXA ou ROSA',
+                        },
+                      },
+                    },
+                    description: 'Detalhamento exato de cada rodada e seus decimais extraídos da imagem',
+                  },
+                  decimalFormula: {
+                    type: Type.OBJECT,
+                    properties: {
+                      sourceCandle: {
+                        type: Type.NUMBER,
+                        description: 'Vela de referência usada no cálculo decimal (ex: 14.82)',
+                      },
+                      integerPart: {
+                        type: Type.NUMBER,
+                        description: 'Parte inteira da vela de referência',
+                      },
+                      decimalPart: {
+                        type: Type.NUMBER,
+                        description: 'Parte decimal da vela de referência',
+                      },
+                      subtractionMath: {
+                        type: Type.STRING,
+                        description: 'Cálculo de subtração decimal (ex: |14 - 82| = 68 -> 6 + 8 = 14)',
+                      },
+                      projectedMinute: {
+                        type: Type.STRING,
+                        description: 'Minuto exato projetado pela fórmula decimal',
+                      },
+                      explanation: {
+                        type: Type.STRING,
+                        description: 'Explicação detalhada da regra de subtração decimal',
+                      },
+                    },
+                    description: 'Análise da fórmula de subtração decimal do Módulo 5',
+                  },
+                  roundVerification: {
+                    type: Type.OBJECT,
+                    properties: {
+                      latestRoundId: {
+                        type: Type.STRING,
+                        description: 'ID da última rodada identificada na imagem',
+                      },
+                      totalRoundsDetected: {
+                        type: Type.NUMBER,
+                        description: 'Total de rodadas identificadas',
+                      },
+                      roundParity: {
+                        type: Type.STRING,
+                        description: 'Paridade da rodada: PAR ou ÍMPAR',
+                      },
+                      imparAdvantageRule: {
+                        type: Type.STRING,
+                        description: 'Aplicação da regra 82b de casas ímpares',
+                      },
+                      decimalsValidated: {
+                        type: Type.BOOLEAN,
+                        description: 'Verdadeiro se os decimais foram checados dígito a dígito',
+                      },
+                      auditVerdict: {
+                        type: Type.STRING,
+                        description: 'Veredito da verificação da rodada e decimais',
+                      },
+                    },
+                    description: 'Relatório de verificação da rodada e dos decimais',
                   },
                 },
+                required: [
+                  'extractedCandles',
+                  'tableState',
+                  'dominantPattern',
+                  'targetCandle',
+                  'targetMultiplier',
+                  'projectedTime',
+                  'confidence',
+                  'keyFindings',
+                  'entryStrategy',
+                  'protectionAdvice',
+                ],
               },
-              description: 'Detalhamento exato de cada rodada e seus decimais extraídos da imagem',
             },
-            decimalFormula: {
-              type: Type.OBJECT,
-              properties: {
-                sourceCandle: {
-                  type: Type.NUMBER,
-                  description: 'Vela de referência usada no cálculo decimal (ex: 14.82)',
-                },
-                integerPart: {
-                  type: Type.NUMBER,
-                  description: 'Parte inteira da vela de referência',
-                },
-                decimalPart: {
-                  type: Type.NUMBER,
-                  description: 'Parte decimal da vela de referência',
-                },
-                subtractionMath: {
-                  type: Type.STRING,
-                  description: 'Cálculo de subtração decimal (ex: |14 - 82| = 68 -> 6 + 8 = 14)',
-                },
-                projectedMinute: {
-                  type: Type.STRING,
-                  description: 'Minuto exato projetado pela fórmula decimal',
-                },
-                explanation: {
-                  type: Type.STRING,
-                  description: 'Explicação detalhada da regra de subtração decimal',
-                },
-              },
-              description: 'Análise da fórmula de subtração decimal do Módulo 5',
-            },
-            roundVerification: {
-              type: Type.OBJECT,
-              properties: {
-                latestRoundId: {
-                  type: Type.STRING,
-                  description: 'ID da última rodada identificada na imagem',
-                },
-                totalRoundsDetected: {
-                  type: Type.NUMBER,
-                  description: 'Total de rodadas identificadas',
-                },
-                roundParity: {
-                  type: Type.STRING,
-                  description: 'Paridade da rodada: PAR ou ÍMPAR',
-                },
-                imparAdvantageRule: {
-                  type: Type.STRING,
-                  description: 'Aplicação da regra 82b de casas ímpares',
-                },
-                decimalsValidated: {
-                  type: Type.BOOLEAN,
-                  description: 'Verdadeiro se os decimais foram checados dígito a dígito',
-                },
-                auditVerdict: {
-                  type: Type.STRING,
-                  description: 'Veredito da verificação da rodada e decimais',
-                },
-              },
-              description: 'Relatório de verificação da rodada e dos decimais',
-            },
-          },
-          required: [
-            'extractedCandles',
-            'tableState',
-            'dominantPattern',
-            'targetCandle',
-            'targetMultiplier',
-            'projectedTime',
-            'confidence',
-            'keyFindings',
-            'entryStrategy',
-            'protectionAdvice',
-          ],
-        },
-      },
-    });
+          });
 
-    const parsedJson = JSON.parse(response.text?.trim() || '{}');
+          responseText = geminiResponse.text?.trim() || '';
+          if (responseText) {
+            break; // Success!
+          }
+        } catch (err: any) {
+          lastError = err;
+          console.warn(`[Gemini API analyze-chart] Tentativa ${attempt} com ${modelName} falhou:`, err?.message || err);
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+          }
+        }
+      }
+      if (responseText) break;
+    }
+
+    if (!responseText) {
+      throw lastError || new Error('Não foi possível obter resposta da IA após tentativas.');
+    }
+
+    // Safely parse JSON from model output
+    let cleanJsonStr = responseText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+    let parsedJson: any;
+
+    try {
+      parsedJson = JSON.parse(cleanJsonStr);
+    } catch {
+      const match = cleanJsonStr.match(/\{[\s\S]*\}/);
+      if (match) {
+        parsedJson = JSON.parse(match[0]);
+      } else {
+        throw new Error('A resposta do leitor de IA não continha um JSON válido.');
+      }
+    }
+
     res.json({ success: true, analysis: parsedJson });
   } catch (err: unknown) {
     console.error('Erro na análise multimodal de imagem pelo Gemini:', err);
     res.status(500).json({
+      success: false,
       error: 'Falha ao processar a análise da imagem do gráfico.',
       details: err instanceof Error ? err.message : String(err),
     });

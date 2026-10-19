@@ -34,12 +34,77 @@ export const AIChartScannerModal: React.FC<AIChartScannerModalProps> = ({
   onApplyAIPrediction,
 }) => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [mimeType, setMimeType] = useState<string>('image/png');
+  const [mimeType, setMimeType] = useState<string>('image/jpeg');
   const [isLoading, setIsLoading] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [imageInfo, setImageInfo] = useState<{ original: string; compressed: string } | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AIChartAnalysis | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasImported, setHasImported] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Compress and resize image using canvas to prevent payload limits and optimize OCR speed
+  const compressImage = async (
+    file: File
+  ): Promise<{ dataUrl: string; mimeType: string; originalSize: number; compressedSize: number }> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Falha ao ler o arquivo selecionado.'));
+      reader.onload = (e) => {
+        const rawDataUrl = e.target?.result as string;
+        const img = new Image();
+        img.onerror = () => reject(new Error('Formato de imagem inválido ou corrompido.'));
+        img.onload = () => {
+          const MAX_WIDTH = 1400;
+          const MAX_HEIGHT = 1400;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+            if (width > height) {
+              height = Math.round((height * MAX_WIDTH) / width);
+              width = MAX_WIDTH;
+            } else {
+              width = Math.round((width * MAX_HEIGHT) / height);
+              height = MAX_HEIGHT;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+
+          if (!ctx) {
+            resolve({
+              dataUrl: rawDataUrl,
+              mimeType: file.type || 'image/jpeg',
+              originalSize: file.size,
+              compressedSize: file.size,
+            });
+            return;
+          }
+
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Convert to JPEG with quality 0.88 - crystal clear for numbers and round IDs, yet <300KB
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.88);
+          const compressedBytes = Math.round((compressedDataUrl.length - 22) * 0.75);
+
+          resolve({
+            dataUrl: compressedDataUrl,
+            mimeType: 'image/jpeg',
+            originalSize: file.size,
+            compressedSize: compressedBytes,
+          });
+        };
+        img.src = rawDataUrl;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
 
   // Allow paste from clipboard (Ctrl+V) when modal is open
   useEffect(() => {
@@ -66,7 +131,7 @@ export const AIChartScannerModal: React.FC<AIChartScannerModalProps> = ({
 
   if (!isOpen) return null;
 
-  const processFile = (file: File) => {
+  const processFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       setErrorMessage('Por favor, selecione um arquivo de imagem válido (PNG, JPEG, WebP).');
       return;
@@ -75,13 +140,33 @@ export const AIChartScannerModal: React.FC<AIChartScannerModalProps> = ({
     setErrorMessage(null);
     setAnalysisResult(null);
     setHasImported(false);
-    setMimeType(file.type);
+    setIsOptimizing(true);
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setSelectedImage(e.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const { dataUrl, mimeType: optMime, originalSize, compressedSize } = await compressImage(file);
+      setSelectedImage(dataUrl);
+      setMimeType(optMime);
+
+      const formatSize = (bytes: number) => {
+        if (bytes > 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        return (bytes / 1024).toFixed(0) + ' KB';
+      };
+
+      setImageInfo({
+        original: formatSize(originalSize),
+        compressed: formatSize(compressedSize),
+      });
+    } catch (err: unknown) {
+      console.warn('Falha na compressão automática, usando leitura direta:', err);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setSelectedImage(e.target?.result as string);
+        setMimeType(file.type || 'image/jpeg');
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setIsOptimizing(false);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -99,25 +184,53 @@ export const AIChartScannerModal: React.FC<AIChartScannerModalProps> = ({
     setHasImported(false);
 
     try {
-      const response = await fetch('/api/ai/analyze-chart', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: selectedImage,
-          mimeType,
-        }),
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 65000);
 
-      const data = await response.json();
+      let response: Response;
+      try {
+        response = await fetch('/api/ai/analyze-chart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: selectedImage,
+            mimeType,
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Falha ao processar a imagem do gráfico.');
+      // Read response as text first to avoid uncaught "Unexpected token 'T', 'The page c'... is not valid JSON"
+      const rawText = await response.text();
+      let data: any = null;
+
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        console.error('Servidor retornou resposta não-JSON:', rawText.slice(0, 300));
+        if (response.status === 413) {
+          throw new Error('A imagem é muito pesada para o servidor. Tente tirar um print recortando apenas a barra de velas.');
+        } else if (response.status === 502 || response.status === 503 || response.status === 504) {
+          throw new Error('O modelo de IA está temporariamente com alta demanda. Aguarde 5 segundos e clique em "Tentar Novamente".');
+        } else {
+          throw new Error(`Instabilidade momentânea no servidor (HTTP ${response.status}). Por favor, clique em "Tentar Novamente".`);
+        }
+      }
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || data?.details || 'Falha ao processar a análise da imagem do gráfico.');
       }
 
       setAnalysisResult(data.analysis);
     } catch (err: unknown) {
       console.error('Erro na análise do gráfico por IA:', err);
-      setErrorMessage(err instanceof Error ? err.message : 'Erro ao analisar a imagem. Tente novamente.');
+      if (err instanceof Error && err.name === 'AbortError') {
+        setErrorMessage('A análise demorou mais de 60 segundos devido à sobrecarga temporária da IA. Clique em "Tentar Novamente".');
+      } else {
+        setErrorMessage(err instanceof Error ? err.message : 'Erro ao analisar a imagem. Tente novamente.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -227,6 +340,7 @@ export const AIChartScannerModal: React.FC<AIChartScannerModalProps> = ({
                 <button
                   onClick={() => {
                     setSelectedImage(null);
+                    setImageInfo(null);
                     setAnalysisResult(null);
                     setHasImported(false);
                   }}
@@ -237,14 +351,29 @@ export const AIChartScannerModal: React.FC<AIChartScannerModalProps> = ({
                 </button>
               </div>
 
+              {/* Compression info feedback */}
+              {imageInfo && (
+                <div className="flex items-center gap-2 text-[11px] text-emerald-300 bg-emerald-950/60 border border-emerald-500/30 px-3 py-1.5 rounded-xl">
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>Imagem otimizada para leitura rápida e precisa: <strong>{imageInfo.original}</strong> ➔ <strong className="text-white">{imageInfo.compressed}</strong></span>
+                </div>
+              )}
+
+              {isOptimizing && (
+                <div className="flex items-center gap-2 text-xs text-purple-300 animate-pulse px-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Comprimindo e calibrando resolução para leitura OCR...</span>
+                </div>
+              )}
+
               {!analysisResult && (
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 rounded-xl bg-[#0e0620] border border-purple-900/50">
                   <span className="text-xs text-slate-300">
-                    Imagem carregada. Clique para executar a varredura e checar rodadas + decimais.
+                    Imagem pronta. Clique para auditar rodadas, números e centésimos decimais.
                   </span>
                   <button
                     onClick={handleAnalyze}
-                    disabled={isLoading}
+                    disabled={isLoading || isOptimizing}
                     className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-purple-600 hover:from-rose-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shrink-0"
                   >
                     {isLoading ? (
@@ -265,9 +394,21 @@ export const AIChartScannerModal: React.FC<AIChartScannerModalProps> = ({
           )}
 
           {errorMessage && (
-            <div className="p-3 rounded-xl bg-red-950/60 border border-red-500/50 text-red-200 text-xs flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-              <span>{errorMessage}</span>
+            <div className="p-3.5 rounded-xl bg-red-950/70 border border-red-500/60 text-red-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+              {selectedImage && (
+                <button
+                  onClick={handleAnalyze}
+                  disabled={isLoading}
+                  className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition cursor-pointer shrink-0 shadow flex items-center gap-1.5"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                  <span>Tentar Novamente</span>
+                </button>
+              )}
             </div>
           )}
 

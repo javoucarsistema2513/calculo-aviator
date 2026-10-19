@@ -83,10 +83,16 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
         }),
       });
 
-      const data = await response.json();
+      const rawText = await response.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error('Serviço de IA temporariamente indisponível. Tente novamente em instantes.');
+      }
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Falha ao consultar o assistente de IA.');
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'Falha ao consultar o assistente de IA.');
       }
 
       const assistantMsg: Message = {
