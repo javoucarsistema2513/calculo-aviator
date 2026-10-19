@@ -81,8 +81,10 @@ app.post('/api/ai/analyze-chart', async (req: Request, res: Response): Promise<v
       return;
     }
 
-    // Clean data URL prefix if present
-    const cleanBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+    // Clean data URL prefix safely regardless of mime format
+    const cleanBase64 = imageBase64.includes(';base64,')
+      ? imageBase64.split(';base64,')[1]
+      : imageBase64.replace(/^data:[^;]+;base64,/, '');
 
     const promptText = `
 Analise minuciosamente esta imagem do gráfico / histórico de rodadas do Aviator (82b / Spribe).
@@ -113,8 +115,8 @@ Aplique com o máximo de rigor os ensinamentos dos Módulos dos Segredos do Avia
    - Indique estratégia de saída (1ª Mão no 1.49x, 2ª Mão buscar alvo).
 `;
 
-    // Models to try in sequence if one experiences transient high demand (503/429)
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest'];
+    // Fast, high-capacity models with immediate availability and multimodal support
+    const modelsToTry = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.5-flash'];
     let lastError: any = null;
     let responseText = '';
 
@@ -389,12 +391,26 @@ Responda em português brasileiro de forma direta, motivadora e estritamente té
       },
     ];
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: contentsPayload,
-    });
+    let responseText = '';
+    const chatModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+    for (const m of chatModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: m,
+          contents: contentsPayload,
+        });
+        responseText = response.text || '';
+        if (responseText) break;
+      } catch (chatErr) {
+        console.warn(`[chat-assistant] Fallback do modelo ${m}:`, chatErr);
+      }
+    }
 
-    res.json({ success: true, reply: response.text || '' });
+    if (!responseText) {
+      throw new Error('Não foi possível obter resposta do assistente no momento.');
+    }
+
+    res.json({ success: true, reply: responseText });
   } catch (err: unknown) {
     console.error('Erro no assistente de IA Gemini:', err);
     res.status(500).json({
@@ -426,51 +442,65 @@ Identifique os 3 Melhores Horários de Ouro (maior probabilidade de soltura de v
 Forneça a assertividade estimada para cada uma, o motivo técnico baseado nos ciclos da 82B (Módulos 1 a 5 e Pai do Aviator), e dicas práticas de gerenciamento de banca para o jogador.
 `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: AVIATOR_KNOWLEDGE_PROMPT },
-            { text: promptText },
+    let responseText = '';
+    const forecastModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+    for (const m of forecastModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: m,
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { text: AVIATOR_KNOWLEDGE_PROMPT },
+                { text: promptText },
+              ],
+            },
           ],
-        },
-      ],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            goldenHours: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  timeRange: { type: Type.STRING, description: 'Intervalo do horário de ouro (ex: 15:20 às 15:45)' },
-                  expectedTarget: { type: Type.STRING, description: 'Alvo esperado (ex: 100x a 350x)' },
-                  assertividade: { type: Type.NUMBER, description: 'Porcentagem de probabilidade (ex: 97.4)' },
-                  motivo: { type: Type.STRING, description: 'Justificativa baseada nos ciclos e módulos da 82b' },
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                goldenHours: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      timeRange: { type: Type.STRING, description: 'Intervalo do horário de ouro (ex: 15:20 às 15:45)' },
+                      expectedTarget: { type: Type.STRING, description: 'Alvo esperado (ex: 100x a 350x)' },
+                      assertividade: { type: Type.NUMBER, description: 'Porcentagem de probabilidade (ex: 97.4)' },
+                      motivo: { type: Type.STRING, description: 'Justificativa baseada nos ciclos e módulos da 82b' },
+                    },
+                    required: ['timeRange', 'expectedTarget', 'assertividade', 'motivo'],
+                  },
+                  description: 'Os 3 principais horários de ouro para velas 100x+',
                 },
-                required: ['timeRange', 'expectedTarget', 'assertividade', 'motivo'],
+                generalAdvice: {
+                  type: Type.STRING,
+                  description: 'Recomendação técnica geral para alavancagem de 100x',
+                },
+                riskWarning: {
+                  type: Type.STRING,
+                  description: 'Aviso crucial de proteção de capital e saída 1.49x/2.00x',
+                },
               },
-              description: 'Os 3 principais horários de ouro para velas 100x+',
-            },
-            generalAdvice: {
-              type: Type.STRING,
-              description: 'Recomendação técnica geral para alavancagem de 100x',
-            },
-            riskWarning: {
-              type: Type.STRING,
-              description: 'Aviso crucial de proteção de capital e saída 1.49x/2.00x',
+              required: ['goldenHours', 'generalAdvice', 'riskWarning'],
             },
           },
-          required: ['goldenHours', 'generalAdvice', 'riskWarning'],
-        },
-      },
-    });
+        });
+        responseText = response.text?.trim() || '';
+        if (responseText) break;
+      } catch (fErr) {
+        console.warn(`[forecast-analysis] Fallback do modelo ${m}:`, fErr);
+      }
+    }
 
-    const parsed = JSON.parse(response.text?.trim() || '{}');
+    if (!responseText) {
+      throw new Error('Não foi possível auditar os horários de ouro no momento.');
+    }
+
+    const parsed = JSON.parse(responseText);
     res.json({ success: true, audit: parsed });
   } catch (err: unknown) {
     console.error('Erro na auditoria de previsões futuras pelo Gemini:', err);

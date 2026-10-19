@@ -41,6 +41,7 @@ export const AIChartScannerModal: React.FC<AIChartScannerModalProps> = ({
   const [analysisResult, setAnalysisResult] = useState<AIChartAnalysis | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasImported, setHasImported] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Compress and resize image using canvas to prevent payload limits and optimize OCR speed
@@ -308,14 +309,34 @@ export const AIChartScannerModal: React.FC<AIChartScannerModalProps> = ({
           {!selectedImage ? (
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="w-full border-2 border-dashed border-purple-500/40 hover:border-rose-500/60 rounded-2xl p-6 sm:p-8 flex flex-col items-center justify-center text-center cursor-pointer bg-[#0c051a] hover:bg-[#15082a] transition duration-200"
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                const file = e.dataTransfer?.files?.[0];
+                if (file) {
+                  processFile(file);
+                }
+              }}
+              className={`w-full border-2 border-dashed rounded-2xl p-6 sm:p-8 flex flex-col items-center justify-center text-center cursor-pointer transition duration-200 ${
+                isDragging
+                  ? 'border-rose-400 bg-rose-950/30 scale-[1.01]'
+                  : 'border-purple-500/40 hover:border-rose-500/60 bg-[#0c051a] hover:bg-[#15082a]'
+              }`}
             >
               <div className="w-14 h-14 rounded-2xl bg-purple-950/60 border border-purple-500/40 flex items-center justify-center mb-3 text-purple-400">
                 <Upload className="w-7 h-7" />
               </div>
 
               <h4 className="text-sm font-bold text-white mb-1">
-                Selecione o print do gráfico da 82b ou cole com Ctrl + V
+                Selecione o print do gráfico da 82b ou arraste aqui (ou cole com Ctrl + V)
               </h4>
               <p className="text-xs text-slate-400 max-w-md">
                 Tire um print da tela com o histórico de rodadas (números, ID das rodadas e multiplicadores) para verificação rigorosa de decimais.
