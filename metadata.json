@@ -1,6 +1,6 @@
 {
-  "name": "Radar Aviator 82b - Velas Roxas & Rosas",
-  "description": "Radar em tempo real de velas roxas e rosas do Aviator no padrão 82b.game com minutagens corretas, alertas sonoros e estatísticas.",
+  "name": "Aviator AI Pro - Cálculos e Sinais PWA",
+  "description": "Calculadora avançada de entradas no Aviator baseada na mentoria Pai do Aviator, análise de prints de velas com IA multimodal e alertas em tempo real.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

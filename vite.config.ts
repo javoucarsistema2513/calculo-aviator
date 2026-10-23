@@ -1,8 +1,8 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
-import {VitePWA} from 'vite-plugin-pwa';
+import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   return {
@@ -14,11 +14,11 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: '/',
-          name: 'Radar Aviator 82b - Velas Roxas & Rosas',
-          short_name: 'RadarAviator',
-          description: 'Radar em tempo real de velas roxas e rosas do Aviator no padrão 82b.game com minutagens corretas.',
-          theme_color: '#0d0817',
-          background_color: '#06030a',
+          name: 'Aviator AI Pro - Cálculos e Sinais',
+          short_name: 'AviatorAI',
+          description: 'Calculadora e mentor de entradas assertivas no Aviator baseada em padrões matemáticos.',
+          theme_color: '#0c0e14',
+          background_color: '#0c0e14',
           display: 'standalone',
           start_url: '/',
           scope: '/',
@@ -54,14 +54,11 @@ export default defineConfig(() => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve('.'),
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
   };
