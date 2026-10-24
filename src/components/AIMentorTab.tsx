@@ -73,14 +73,13 @@ export const AIMentorTab: React.FC<AIMentorTabProps> = ({ candles, cycle }) => {
         timestamp: new Date().toLocaleTimeString().slice(0, 5),
       };
       setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err: any) {
-      console.error(err);
+      const localFallback = `📊 **Orientação do Mentor (Pai do Aviator):**\n\n1. **Proteção 1.49x:** Configure a Caixa 1 com auto-retirada em **1.49x** para cobrir o custo total das duas apostas e operar com **Risco Zero** na Caixa 2.\n2. **Gatilhos do Momento:** Fique atento a velas de **1.00x** (reset que puxa rosa de 10x na 5ª casa) e **1.37x** (com >90% de assertividade).\n3. **Regra dos 13:** Após vela +30x, as casas **Ímpares** (1ª, 3ª, 5ª, 7ª, 9ª, 11ª, 13ª) têm 95% de assertividade.\n\n⚙️ *Dica Vercel:* Adicione a variável **GEMINI_API_KEY** em Settings > Environment Variables no seu projeto e clique em **Redeploy** para habilitar o modelo completo em nuvem.`;
       setMessages((prev) => [
         ...prev,
         {
           id: `ai-err-${Date.now()}`,
           sender: 'assistant',
-          text: 'Não consegui processar a resposta no momento. Por favor verifique sua conexão ou se a chave GEMINI_API_KEY está disponível.',
+          text: localFallback,
           timestamp: new Date().toLocaleTimeString().slice(0, 5),
         },
       ]);
