@@ -1,8 +1,8 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig } from 'vite';
-import { VitePWA } from 'vite-plugin-pwa';
+import {defineConfig} from 'vite';
+import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   return {
@@ -11,14 +11,14 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
+        includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
         manifest: {
           id: '/',
-          name: 'Aviator AI Pro - Cálculos e Sinais',
-          short_name: 'AviatorAI',
-          description: 'Calculadora e mentor de entradas assertivas no Aviator baseada em padrões matemáticos.',
-          theme_color: '#0c0e14',
-          background_color: '#0c0e14',
+          name: 'Aviator Predictor Pro',
+          short_name: 'AviatorPro',
+          description: 'Calculadora estatística universal e offline para análise e previsão de multiplicadores de velas do Aviator.',
+          theme_color: '#0d0e15',
+          background_color: '#090a10',
           display: 'standalone',
           start_url: '/',
           scope: '/',
@@ -54,11 +54,14 @@ export default defineConfig(() => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve('.'),
+        '@': path.resolve(__dirname, '.'),
       },
     },
     server: {
+      // HMR is disabled in AI Studio via DISABLE_HMR env var.
+      // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
+      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
   };

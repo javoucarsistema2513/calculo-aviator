@@ -1,6 +1,6 @@
 {
-  "name": "Aviator AI Pro - Cálculos e Sinais PWA",
-  "description": "Calculadora avançada de entradas no Aviator baseada na mentoria Pai do Aviator, análise de prints de velas com IA multimodal e alertas em tempo real.",
+  "name": "Aviator Predictor Pro - Calculadora Estatística & PWA",
+  "description": "Calculadora estatística universal e offline para análise e previsão de multiplicadores de velas (roxas e rosas) no Aviator em horizontes de 7h, 12h e 24h, com catalogação gráfica e gestão de risco.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

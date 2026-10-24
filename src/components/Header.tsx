@@ -1,121 +1,140 @@
-import React from 'react';
-import { Volume2, VolumeX, Bell, BellOff, Sparkles, Plane } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import { PWAInstallButton } from './PWAInstallButton';
+import { OfflineIndicator } from './OfflineIndicator';
+import { BETTING_HOUSES } from '../utils/aviatorCalculations';
+import { Plane, Volume2, VolumeX, ShieldAlert, Clock, Sparkles } from 'lucide-react';
 
 interface HeaderProps {
-  isMuted: boolean;
-  toggleMute: () => void;
-  isPushGranted: boolean;
-  requestPush: () => void;
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
-  activeSignalsCount: number;
+  selectedHouse: string;
+  onSelectHouse: (houseId: string) => void;
+  soundEnabled: boolean;
+  onToggleSound: () => void;
+  onOpenRiskModal: () => void;
+  onLoadExample: (exampleIndex: number) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  isMuted,
-  toggleMute,
-  isPushGranted,
-  requestPush,
-  activeTab,
-  setActiveTab,
-  activeSignalsCount,
+  selectedHouse,
+  onSelectHouse,
+  soundEnabled,
+  onToggleSound,
+  onOpenRiskModal,
 }) => {
+  const [currentTime, setCurrentTime] = useState<string>('');
+
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      const s = String(now.getSeconds()).padStart(2, '0');
+      setCurrentTime(`${h}:${m}:${s}`);
+    };
+    updateClock();
+    const timer = setInterval(updateClock, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-md">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-2">
-        {/* Brand */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-rose-700 shadow-lg shadow-rose-950/50">
-            <Plane className="w-5 h-5 text-white transform -rotate-45" />
-            <span className="absolute -top-1 -right-1 flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-            </span>
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-1.5">
-                AVIATOR <span className="text-rose-500">AI PRO</span>
-              </h1>
-              <span className="hidden sm:inline-flex px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                Pai do Aviator
-              </span>
+    <header className="sticky top-0 z-40 bg-[#0d0e17]/90 backdrop-blur-md border-b border-gray-800/80 px-3 sm:px-6 py-2.5 transition-colors">
+      <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+        
+        {/* Left: Brand Identity */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-600 via-pink-600 to-purple-600 shadow-lg shadow-pink-600/30 border border-pink-400/40">
+              <Plane className="w-5 h-5 text-white transform -rotate-45 animate-pulse" />
+              <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#0d0e17]" />
             </div>
-            <p className="text-[11px] text-zinc-400 hidden sm:block">
-              Calculadora de Entradas & Visão Multimodal
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base sm:text-lg font-black tracking-wider text-white">
+                  AVIATOR <span className="text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-400">PREDICTOR PRO</span>
+                </h1>
+                <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                  <Sparkles className="w-2.5 h-2.5 text-pink-400" /> V5 ALGO
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-400 flex items-center gap-2">
+                <span>Calculadora Estatística & Algoritmo de Probabilidades</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Mobile Right Quick Icons */}
+          <div className="flex md:hidden items-center gap-1.5">
+            <button
+              onClick={onToggleSound}
+              className={`p-2 rounded-lg border text-xs transition ${
+                soundEnabled
+                  ? 'border-pink-500/40 bg-pink-950/40 text-pink-300'
+                  : 'border-gray-800 bg-gray-900/60 text-gray-500'
+              }`}
+              title={soundEnabled ? 'Sons ativados' : 'Sons mudos'}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+            <PWAInstallButton />
           </div>
         </div>
 
-        {/* Right actions */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          {/* Audio toggle */}
-          <button
-            onClick={toggleMute}
-            className={`p-2 rounded-xl border transition ${
-              isMuted
-                ? 'border-zinc-800 bg-zinc-900/60 text-zinc-500 hover:text-zinc-300'
-                : 'border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20'
-            }`}
-            title={isMuted ? 'Ativar avisos sonoros' : 'Silenciar áudio'}
-          >
-            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          </button>
-
-          {/* Push notification toggle */}
-          <button
-            onClick={requestPush}
-            className={`p-2 rounded-xl border transition ${
-              isPushGranted
-                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
-                : 'border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-white'
-            }`}
-            title={isPushGranted ? 'Notificações push ativas' : 'Ativar notificações push em tempo real'}
-          >
-            {isPushGranted ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
-          </button>
-
-          {/* PWA Install Button */}
-          <PWAInstallButton />
-        </div>
-      </div>
-
-      {/* Navigation tabs */}
-      <div className="max-w-7xl mx-auto px-2 sm:px-6 overflow-x-auto scrollbar-none flex gap-1 border-t border-zinc-800/80 bg-zinc-950/60 py-1.5">
-        {[
-          { id: 'signals', label: 'Sinais & Radar', badge: activeSignalsCount > 0 ? activeSignalsCount : null },
-          { id: 'screenshot', label: 'Leitor de Print (IA)', isNew: true },
-          { id: 'calculators', label: 'Cálculos de Entradas' },
-          { id: 'bankroll', label: 'Proteção 1.49x & Banca' },
-          { id: 'mentor', label: 'Mentor IA ao Vivo' },
-          { id: 'studies', label: 'Estudos dos PDFs' },
-        ].map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition cursor-pointer ${
-                isActive
-                  ? 'bg-rose-600 text-white shadow-md shadow-rose-950/40'
-                  : 'text-zinc-400 hover:text-white hover:bg-zinc-900/60'
-              }`}
+        {/* Right: Controls, House Selector, Clock, Risk Modal button */}
+        <div className="flex flex-wrap items-center justify-between md:justify-end gap-2 text-xs">
+          
+          {/* House Selector */}
+          <div className="flex items-center gap-1.5 bg-gray-900/80 border border-gray-800 rounded-xl px-2.5 py-1.5">
+            <span className="text-gray-400 text-[11px] font-medium hidden sm:inline">Plataforma:</span>
+            <select
+              value={selectedHouse}
+              onChange={(e) => onSelectHouse(e.target.value)}
+              className="bg-transparent text-white font-semibold outline-none cursor-pointer pr-1"
             >
-              {tab.label}
-              {tab.badge && (
-                <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-black bg-white text-rose-600">
-                  {tab.badge}
-                </span>
-              )}
-              {tab.isNew && (
-                <span className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-black uppercase tracking-wider bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30">
-                  <Sparkles className="w-2.5 h-2.5" /> IA
-                </span>
-              )}
-            </button>
-          );
-        })}
+              {BETTING_HOUSES.map((house) => (
+                <option key={house.id} value={house.id} className="bg-[#141522] text-white">
+                  {house.name} {house.isPopular ? '⭐' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Live Clock with Second Hand */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-900/70 border border-gray-800 text-gray-300 font-mono text-xs">
+            <Clock className="w-3.5 h-3.5 text-pink-400 animate-spin" style={{ animationDuration: '60s' }} />
+            <span className="font-bold text-white tracking-widest">{currentTime || '--:--:--'}</span>
+          </div>
+
+          {/* Risk Management Button */}
+          <button
+            onClick={onOpenRiskModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-yellow-500/30 bg-yellow-950/20 text-yellow-300 hover:bg-yellow-900/30 transition font-medium cursor-pointer"
+            title="Gerenciamento de Banca, Mão 1.49x e Stop Win/Loss"
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-yellow-400" />
+            <span className="hidden sm:inline">Gestão & Proteção</span>
+            <span className="sm:hidden">Gestão</span>
+          </button>
+
+          {/* Desktop Sound Toggle */}
+          <button
+            onClick={onToggleSound}
+            className={`hidden md:flex items-center gap-1.5 p-2 rounded-xl border text-xs transition cursor-pointer ${
+              soundEnabled
+                ? 'border-pink-500/40 bg-pink-950/40 text-pink-300'
+                : 'border-gray-800 bg-gray-900/60 text-gray-500'
+            }`}
+            title={soundEnabled ? 'Sons ativados' : 'Sons mudos'}
+          >
+            {soundEnabled ? <Volume2 className="w-4 h-4 text-pink-400" /> : <VolumeX className="w-4 h-4" />}
+          </button>
+
+          {/* Desktop PWA Install Button */}
+          <div className="hidden md:block">
+            <PWAInstallButton />
+          </div>
+
+          <OfflineIndicator />
+        </div>
+
       </div>
     </header>
   );
