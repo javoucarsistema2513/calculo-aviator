@@ -4,24 +4,24 @@ import path from 'path';
 import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
-import { fileURLToPath } from 'node:url';
-
 export default defineConfig(() => {
-  const __root = fileURLToPath(new URL('.', import.meta.url));
   return {
     plugins: [
       react(),
       tailwindcss(),
       VitePWA({
+        strategies: 'injectManifest',
+        srcDir: 'src',
+        filename: 'sw.ts',
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
+        includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
         manifest: {
           id: '/',
-          name: 'Aviator Predictor Pro - Oráculo de Velas',
+          name: 'Aviator Radar Pro',
           short_name: 'AviatorPro',
-          description: 'Calculador e preditor profissional de velas roxas, rosas e 100x+ para qualquer casa.',
-          theme_color: '#0f172a',
-          background_color: '#020617',
+          description: 'Buscador de rodadas e entradas do Aviator para qualquer casa seguindo estratégias de velas, horários e padrões.',
+          theme_color: '#0B0F17',
+          background_color: '#0B0F17',
           display: 'standalone',
           start_url: '/',
           scope: '/',
@@ -46,7 +46,7 @@ export default defineConfig(() => {
             },
           ],
         },
-        workbox: {
+        injectManifest: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
         },
         devOptions: {
@@ -57,7 +57,7 @@ export default defineConfig(() => {
     ],
     resolve: {
       alias: {
-        '@': __root,
+        '@': path.resolve(__dirname, '.'),
       },
     },
     server: {

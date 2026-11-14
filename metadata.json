@@ -1,6 +1,6 @@
 {
-  "name": "Aviator Predictor Pro - Oráculo & Scanner de Velas",
-  "description": "App PWA profissional de análise e projeção de velas futuras (Roxas, Rosas e Super Altas 50x/100x+) com scanner de print por IA (Ctrl+V) para ler histórico de rodadas e calcular decimais automaticamente.",
+  "name": "Aviator Radar Pro",
+  "description": "Buscador de rodadas e sinais do Aviator para qualquer casa de apostas com cálculos em tempo real baseados nas estratégias de velas, horários e padrões.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

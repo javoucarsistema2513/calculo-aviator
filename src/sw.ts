@@ -3,7 +3,7 @@ import { clientsClaim } from 'workbox-core';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching';
 import { NavigationRoute, registerRoute } from 'workbox-routing';
-import { CacheFirst } from 'workbox-strategies';
+import { CacheFirst, NetworkOnly } from 'workbox-strategies';
 
 interface SWNotificationAction {
   action: string;
@@ -73,6 +73,11 @@ const sw = self as unknown as SWGlobalScope;
 void sw.skipWaiting();
 clientsClaim();
 cleanupOutdatedCaches();
+
+registerRoute(
+  ({ url }) => url.pathname.startsWith('/api/'),
+  new NetworkOnly()
+);
 
 const wbManifest = self.__WB_MANIFEST || [];
 precacheAndRoute(wbManifest);

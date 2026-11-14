@@ -2,10 +2,14 @@ import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
+  BarChart3,
   Bell,
+  BellRing,
   BookmarkCheck,
   Bot,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Crosshair,
   Loader2,
@@ -15,11 +19,13 @@ import {
   Send,
   Share2,
   ShieldCheck,
+  SlidersHorizontal,
   TrendingUp,
   Zap,
 } from 'lucide-react';
 import { ALL_HOUSES } from '../data/aviatorRules';
 import { ScheduledAlertItem } from '../hooks/useRealtimeNotifications';
+import { fetchJson } from '../utils/apiClient';
 import {
   AnalysisResult,
   CandleColor,
@@ -30,6 +36,7 @@ import {
   RoundEntry,
   SearchLogItem,
   getCurrentTimeStr,
+  getOperatingScheduleSnapshot,
   parseQuickCandlesText,
 } from '../utils/aviatorEngine';
 import { EstatisticasHorariosPanel } from './EstatisticasHorariosPanel';
@@ -170,6 +177,12 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
   const [quickError, setQuickError] = useState<string | null>(null);
   const [isAskingQuick, setIsAskingQuick] = useState(false);
   const [scheduledSignalMap, setScheduledSignalMap] = useState<Record<string, boolean>>({});
+  const [showExtraTools, setShowExtraTools] = useState(false);
+  const [showCalibration, setShowCalibration] = useState(false);
+  const [showAlertsPanel, setShowAlertsPanel] = useState(false);
+  const [showStatsPanel, setShowStatsPanel] = useState(false);
+
+  const liveSchedule = useMemo(() => getOperatingScheduleSnapshot(getCurrentTimeStr()), []);
 
   const handleAskQuickAI = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -179,7 +192,7 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
     setQuickError(null);
 
     try {
-      const response = await fetch('/api/aviator/chat', {
+      const data = await fetchJson<{ reply?: string; error?: string }>('/api/aviator/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -190,8 +203,7 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
           messages: [{ role: 'user', text: trimmed }],
         }),
       });
-      const data = (await response.json()) as { reply?: string; error?: string };
-      if (!response.ok || !data.reply) {
+      if (!data.reply) {
         throw new Error(data.error || 'Erro ao consultar o Assistente IA.');
       }
       setQuickAnswer(data.reply);
@@ -247,10 +259,10 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between border-b border-white/10 pb-5">
           <div>
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-50 text-balance">
-              Radar Universal de Rodadas & Entradas
+              Buscador de Rodadas & Entradas
             </h1>
-            <p className="mt-1.5 text-sm text-slate-400 max-w-2xl">
-              Compatível com qualquer casa de Aviator (82B, Betano, Bet7k, EstrelaBet, Blaze ou personalizada). Calibre a velocidade ao vivo ou cole as últimas velas para precisão máxima.
+            <p className="mt-1 text-sm text-slate-400">
+              Digite a rodada e a última vela saída para calcular as próximas entradas com proteção.
             </p>
           </div>
 
@@ -527,6 +539,20 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
                 Ciclo Negativo (+2/+5m)
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setShowExtraTools((v) => !v)}
+              className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                showExtraTools || recentCandlesText.trim() || quickAnswer
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                  : 'border-white/10 bg-[#0B0F17] text-slate-300 hover:border-white/20'
+              }`}
+            >
+              <Bot className="h-3.5 w-3.5" />
+              <span>Velas da Mesa & IA</span>
+              {showExtraTools ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
           </div>
         </div>
 
@@ -538,117 +564,101 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
           </div>
         )}
 
-        {/* Recent Table Candles Quick Feed (Universal Precision Booster) */}
-        <div className="mt-4 pt-4 border-t border-white/10">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-            <label htmlFor="recent-candles-input" className="text-xs font-medium text-slate-300">
-              Últimas Velas da Mesa (opcional · aumenta a precisão de Pague/Recolhe e Decimais)
-            </label>
-            {recentCandlesText.trim() && (
-              <div className="flex items-center gap-3 text-xs">
-                <span className="font-mono text-emerald-300">
-                  {parseQuickCandlesText(recentCandlesText).length} velas lidas
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onRecentCandlesTextChange('')}
-                  className="text-slate-400 hover:text-slate-200 cursor-pointer"
-                >
-                  Limpar
-                </button>
+        {(showExtraTools || recentCandlesText.trim() || quickAnswer || quickError) && (
+          <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
+            {/* Recent Table Candles Quick Feed */}
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                <label htmlFor="recent-candles-input" className="text-xs font-medium text-slate-300">
+                  Últimas Velas da Mesa (opcional · aumenta a precisão de Pague/Recolhe e Decimais)
+                </label>
+                {recentCandlesText.trim() && (
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="font-mono text-emerald-300">
+                      {parseQuickCandlesText(recentCandlesText).length} velas lidas
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onRecentCandlesTextChange('')}
+                      className="text-slate-400 hover:text-slate-200 cursor-pointer"
+                    >
+                      Limpar
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <input
-            id="recent-candles-input"
-            type="text"
-            value={recentCandlesText}
-            onChange={(e) => onRecentCandlesTextChange(e.target.value)}
-            placeholder="Cole da mais recente para a mais antiga (ex: 12.56 1.00 2.34 1.37 1.18 3.45)"
-            className="min-h-[42px] w-full rounded-xl border border-white/15 bg-[#0B0F17] px-3.5 font-mono text-xs sm:text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
-          />
-        </div>
-        {/* Quick AI Question Bar inside Buscador */}
-        <div className="mt-4 pt-4 border-t border-white/10">
-          <form onSubmit={handleAskQuickAI} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <label htmlFor="buscador-ai-question" className="sr-only">
-              Pergunta rápida para o Assistente de IA
-            </label>
-            <div className="relative flex-1">
-              <Bot className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-400" />
               <input
-                id="buscador-ai-question"
+                id="recent-candles-input"
                 type="text"
-                value={quickQuestion}
-                onChange={(e) => setQuickQuestion(e.target.value)}
-                placeholder={`Pergunte ao Assistente de IA sobre a ${selectedHouse} ou rodada #${roundInput || '—'}...`}
-                className="min-h-[44px] w-full rounded-xl border border-white/15 bg-[#0B0F17] pl-10 pr-3.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                value={recentCandlesText}
+                onChange={(e) => onRecentCandlesTextChange(e.target.value)}
+                placeholder="Cole da mais recente para a mais antiga (ex: 12.56 1.00 2.34 1.37 1.18 3.45)"
+                className="min-h-[42px] w-full rounded-xl border border-white/15 bg-[#0B0F17] px-3.5 font-mono text-xs sm:text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
               />
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="submit"
-                disabled={isAskingQuick || !quickQuestion.trim()}
-                className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors cursor-pointer"
-              >
-                {isAskingQuick ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                <span>Perguntar à IA</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onJumpToTab('assistente')}
-                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-white/15 bg-[#192231] px-3.5 text-xs font-medium text-slate-200 hover:bg-white/10 transition-colors cursor-pointer whitespace-nowrap"
-              >
-                <span>Abrir IA & Print</span>
-              </button>
-            </div>
-          </form>
 
-          {quickError && (
-            <div className="mt-2.5 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
-              <span>{quickError}</span>
-            </div>
-          )}
+            {/* Quick AI Question Bar */}
+            <div>
+              <form onSubmit={handleAskQuickAI} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <label htmlFor="buscador-ai-question" className="sr-only">
+                  Pergunta rápida para o Assistente de IA
+                </label>
+                <div className="relative flex-1">
+                  <Bot className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-400" />
+                  <input
+                    id="buscador-ai-question"
+                    type="text"
+                    value={quickQuestion}
+                    onChange={(e) => setQuickQuestion(e.target.value)}
+                    placeholder={`Pergunte ao Assistente de IA sobre a ${selectedHouse} ou rodada #${roundInput || '—'}...`}
+                    className="min-h-[44px] w-full rounded-xl border border-white/15 bg-[#0B0F17] pl-10 pr-3.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="submit"
+                    disabled={isAskingQuick || !quickQuestion.trim()}
+                    className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors cursor-pointer"
+                  >
+                    {isAskingQuick ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    <span>Perguntar à IA</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onJumpToTab('assistente')}
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-white/15 bg-[#192231] px-3.5 text-xs font-medium text-slate-200 hover:bg-white/10 transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    <span>Abrir Assistente IA</span>
+                  </button>
+                </div>
+              </form>
 
-          {quickAnswer && (
-            <div className="mt-3 rounded-xl border border-emerald-500/30 bg-[#0B0F17] p-3.5 text-xs sm:text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
-              <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-emerald-400">
-                <span>RESPOSTA DO ASSISTENTE IA ({selectedHouse})</span>
-                <button
-                  type="button"
-                  onClick={() => setQuickAnswer(null)}
-                  className="text-slate-400 hover:text-slate-200 cursor-pointer"
-                >
-                  Fechar
-                </button>
-              </div>
-              {quickAnswer}
+              {quickError && (
+                <div className="mt-2.5 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
+                  <span>{quickError}</span>
+                </div>
+              )}
+
+              {quickAnswer && (
+                <div className="mt-3 rounded-xl border border-emerald-500/30 bg-[#0B0F17] p-3.5 text-xs sm:text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
+                  <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-emerald-400">
+                    <span>RESPOSTA DO ASSISTENTE IA ({selectedHouse})</span>
+                    <button
+                      type="button"
+                      onClick={() => setQuickAnswer(null)}
+                      className="text-slate-400 hover:text-slate-200 cursor-pointer"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                  {quickAnswer}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </section>
-
-      {/* Real-Time Background Notifications Monitor */}
-      <RealtimeAlertsPanel
-        houseName={selectedHouse}
-        roundNumber={roundInput}
-        permission={notifications.permission}
-        isPushSubscribed={notifications.isPushSubscribed}
-        sseConnected={notifications.sseConnected}
-        statusNote={notifications.statusNote}
-        isEnabling={notifications.isEnabling}
-        soundEnabled={notifications.soundEnabled}
-        onToggleSound={notifications.onToggleSound}
-        autoMonitor={notifications.autoMonitor}
-        onToggleAutoMonitor={notifications.onToggleAutoMonitor}
-        leadSeconds={notifications.leadSeconds}
-        onLeadSecondsChange={notifications.onLeadSecondsChange}
-        scheduledAlerts={notifications.scheduledAlerts}
-        onEnableBackground={notifications.onEnableBackground}
-        onTestNotification={notifications.onTestNotification}
-        onCancelAlert={notifications.onCancelAlert}
-      />
 
       {!analysis.valid ? (
         <div className="rounded-2xl border border-white/10 bg-[#131A26] p-8 text-center">
@@ -662,9 +672,335 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
         </div>
       ) : (
         <>
+          {/* 2-Column Results Workspace FIRST (Just like original layout) */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+            {/* Left Column: Calculated Rounds & Entry Signals */}
+            <section className="lg:col-span-7 rounded-2xl border border-white/10 bg-[#131A26] p-4 sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-100">
+                    Rodadas e Horários com Entrada
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    {analysis.signals.length} {analysis.signals.length === 1 ? 'estratégia ativa' : 'estratégias ativas'} para #{analysis.roundNumber} · {analysis.diagnostic.formatted}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleRegister}
+                    className="inline-flex min-h-[36px] items-center gap-1 rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Registrar</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveLog}
+                    className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-white/15 bg-[#192231] px-3 text-xs font-medium text-slate-200 hover:bg-white/10 transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    <BookmarkCheck className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Salvar</span>
+                  </button>
+                </div>
+              </div>
+
+              {registerFeedback && (
+                <div className="mt-3 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-300">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>{registerFeedback}</span>
+                </div>
+              )}
+
+              <div className="divide-y divide-white/10">
+                {analysis.signals.map((sig) => (
+                  <article key={sig.id} className="py-4 first:pt-4 last:pb-0">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                          <span className="font-medium text-emerald-400">
+                            {sig.confidence === 'alta' ? 'Alta Assertividade' : 'Sinal Complementar'}
+                          </span>
+                          <span aria-hidden="true">·</span>
+                          <span>{sig.moduleSource}</span>
+                          {sig.isStrongMinute && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span className="text-amber-300 font-medium">Minuto Forte (00/05/09)</span>
+                            </>
+                          )}
+                        </div>
+                        <h3 className="mt-1 text-base font-semibold text-slate-100">
+                          {sig.title}
+                        </h3>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="font-mono text-sm font-bold text-emerald-300">
+                          Alvo {sig.targetMultiplier}
+                        </div>
+                        <div className="font-mono text-xs text-slate-400">
+                          Proteção {sig.protection}
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="mt-2 font-mono text-xs text-slate-300">
+                      {sig.formula}
+                    </p>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3 text-xs">
+                      <div className="rounded-lg bg-[#0B0F17] px-3 py-2">
+                        <div className="text-slate-500">Horário de Entrada</div>
+                        <div className="mt-0.5 font-mono font-semibold text-slate-100">
+                          {sig.targetTime}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg bg-[#0B0F17] px-3 py-2">
+                        <div className="text-slate-500">Rodadas Alvo</div>
+                        <div className="mt-0.5 font-mono font-semibold text-emerald-300 truncate">
+                          {sig.targetRounds.length > 0
+                            ? sig.targetRounds.map((r) => `#${r}`).join(', ')
+                            : sig.casasLabel || 'Por minuto exato'}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg bg-[#0B0F17] px-3 py-2 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-slate-500">Execução</div>
+                          <div className="mt-0.5 font-medium text-slate-200 truncate">
+                            {sig.execution}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const alertKey = `manual:${sig.id}:${sig.targetTime}`;
+                            const roundsText =
+                              sig.targetRounds.length > 0
+                                ? sig.targetRounds.map((r) => `#${r}`).join(', ')
+                                : sig.casasLabel || 'Por minuto';
+                            await notifications.onScheduleSignalAlert({
+                              key: alertKey,
+                              title: `${selectedHouse} · ${sig.title}`,
+                              body: `Entrada ${sig.targetTime} | Rodadas: ${roundsText} | Alvo ${sig.targetMultiplier} (Prot. ${sig.protection})`,
+                              houseName: selectedHouse,
+                              roundNumber: sig.targetRounds[0] ? String(sig.targetRounds[0]) : roundInput,
+                              targetTime: sig.targetTime,
+                              targetMultiplier: sig.targetMultiplier,
+                              protection: sig.protection,
+                            });
+                            setScheduledSignalMap((prev) => ({ ...prev, [sig.id]: true }));
+                          }}
+                          className={`inline-flex min-h-[34px] items-center gap-1 rounded-lg border px-2.5 text-[11px] font-semibold transition-colors cursor-pointer shrink-0 ${
+                            scheduledSignalMap[sig.id]
+                              ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                              : 'border-white/15 bg-[#131A26] text-slate-200 hover:border-emerald-500/40 hover:text-emerald-300'
+                          }`}
+                        >
+                          <Bell className="h-3.5 w-3.5" />
+                          <span>{scheduledSignalMap[sig.id] ? 'Agendado' : 'Alertar'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            {/* Right Column: Candle Diagnostic & Live Board */}
+            <div className="lg:col-span-5 space-y-6">
+              {/* Diagnostic Card */}
+              <section className="rounded-2xl border border-white/10 bg-[#131A26] p-4 sm:p-6">
+                <h2 className="text-base font-semibold text-slate-100">
+                  Diagnóstico da Vela & Casa
+                </h2>
+
+                <div className="mt-4 flex items-center justify-between rounded-xl border border-white/10 bg-[#0B0F17] p-4">
+                  <div>
+                    <div className="text-xs text-slate-400">Última vela analisada</div>
+                    <div className={`mt-1 font-mono text-2xl font-bold ${CANDLE_STYLES[analysis.diagnostic.color].text}`}>
+                      {analysis.diagnostic.formatted}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-400">
+                      {CANDLE_STYLES[analysis.diagnostic.color].label}
+                      {analysis.diagnostic.isSpecial && ' · Vela Especial'}
+                      {analysis.diagnostic.isCasaDos90 && ' · Casa dos 90'}
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="text-xs text-slate-400">Casa selecionada</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-100">{selectedHouse}</div>
+                    {analysis.diagnostic.pairedHouse && (
+                      <div className="mt-0.5 text-xs text-slate-400">
+                        Espelho: <span className="text-slate-200">{analysis.diagnostic.pairedHouse}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Time & Final Digit Diagnostics */}
+                <div className="mt-4 space-y-2.5 text-xs">
+                  <div className="flex items-start gap-2.5 rounded-xl bg-[#0B0F17] p-3">
+                    <Clock className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-medium text-slate-200">
+                        {analysis.diagnostic.isBestHour
+                          ? `Dentro de Melhor Horário (${analysis.diagnostic.bestHourLabel})`
+                          : 'Fora dos 5 horários de pico clássicos (opere apenas se o gráfico pagar)'}
+                      </div>
+                      <div className="mt-0.5 text-slate-400">
+                        Melhores horários (Mód. 4 p.50): 06–09h · 13–14h · 16h30–17h40 · 20–21h · 00–02h
+                      </div>
+                    </div>
+                  </div>
+
+                  {analysis.diagnostic.finalDigitNote && (
+                    <div className="flex items-start gap-2.5 rounded-xl bg-[#0B0F17] p-3">
+                      <AlertTriangle
+                        className={`h-4 w-4 shrink-0 mt-0.5 ${
+                          analysis.diagnostic.finalDigit === 7 ? 'text-red-400' : 'text-emerald-400'
+                        }`}
+                      />
+                      <div>
+                        <div className="font-medium text-slate-200">
+                          Dica de Ouro 2 — Final {analysis.diagnostic.finalDigit}
+                        </div>
+                        <div className="mt-0.5 text-slate-300">
+                          {analysis.diagnostic.finalDigitNote}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {analysis.diagnostic.predominantDecimal && (
+                    <div className="flex items-start gap-2.5 rounded-xl bg-[#0B0F17] p-3">
+                      <Crosshair className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-medium text-slate-200">
+                          Decimal Predominante: <span className="font-mono text-amber-300">.x{analysis.diagnostic.predominantDecimal.digit}</span> ({analysis.diagnostic.predominantDecimal.count}x no ciclo)
+                        </div>
+                        <div className="mt-0.5 text-slate-400">
+                          Treinamento III p.10: observe quando a soma decimal da vela fechar em {analysis.diagnostic.predominantDecimal.digit}.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-start gap-2.5 rounded-xl bg-[#0B0F17] p-3">
+                    <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-medium text-slate-200">
+                        Proteção Recomendada (Módulo 5 p.17)
+                      </div>
+                      <div className="mt-0.5 text-slate-400">
+                        1ª mão cobrindo em <span className="font-mono text-slate-200">1.49x</span> (ou 2.00x mão igual) e 2ª mão no alvo <span className="font-mono text-slate-200">5x / 10x</span>.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Sequence Alerts & Live House Board Preview */}
+              <section className="rounded-2xl border border-white/10 bg-[#131A26] p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-100">
+                      Padrões do Gráfico ({selectedHouse})
+                    </h2>
+                    <p className="text-xs text-slate-400">
+                      {houseHistory.length === 0
+                        ? 'Registre rodadas para detectar pares e sequências'
+                        : `${houseHistory.length} rodadas registradas nesta casa`}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onJumpToTab('historico')}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                  >
+                    <span>Ver tudo</span>
+                    <TrendingUp className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                {analysis.sequenceAlerts.length > 0 && (
+                  <div className="mt-4 space-y-2.5">
+                    {analysis.sequenceAlerts.map((alert) => (
+                      <div
+                        key={alert.id}
+                        className={`rounded-xl border p-3 text-xs ${
+                          alert.severity === 'perigo'
+                            ? 'border-red-500/35 bg-red-500/10 text-red-200'
+                            : alert.severity === 'alerta'
+                              ? 'border-amber-500/35 bg-amber-500/10 text-amber-200'
+                              : 'border-emerald-500/35 bg-emerald-500/10 text-emerald-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 font-semibold">
+                          <span>{alert.title}</span>
+                          <span className="text-[11px] opacity-80">{alert.source}</span>
+                        </div>
+                        <p className="mt-1 opacity-90">{alert.description}</p>
+                        <p className="mt-1 font-medium">Ação: {alert.action}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {houseHistory.length > 0 ? (
+                  <>
+                    <div className="mt-4 grid grid-cols-3 gap-2 text-center font-mono text-xs">
+                      <div className="rounded-lg bg-[#0B0F17] p-2">
+                        <div className="text-sky-400 font-semibold">{analysis.boardStats.azulPct}%</div>
+                        <div className="text-[11px] text-slate-500">Azuis ({analysis.boardStats.azulCount})</div>
+                      </div>
+                      <div className="rounded-lg bg-[#0B0F17] p-2">
+                        <div className="text-violet-400 font-semibold">{analysis.boardStats.roxoPct}%</div>
+                        <div className="text-[11px] text-slate-500">Roxos ({analysis.boardStats.roxoCount})</div>
+                      </div>
+                      <div className="rounded-lg bg-[#0B0F17] p-2">
+                        <div className="text-pink-400 font-semibold">{analysis.boardStats.rosaPct}%</div>
+                        <div className="text-[11px] text-slate-500">Rosas ({analysis.boardStats.rosaCount})</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-6 gap-1.5">
+                      {houseHistory.slice(0, 18).map((item) => {
+                        const c = item.multiplier >= 10 ? 'rosa' : item.multiplier >= 2 ? 'roxo' : 'azul';
+                        const st = CANDLE_STYLES[c];
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              onRoundInputChange(String(item.roundNumber));
+                              onMultiplierInputChange(item.multiplier.toFixed(2));
+                              onTimeInputChange(item.timeStr);
+                            }}
+                            title={`Rodada #${item.roundNumber} · ${item.timeStr}`}
+                            className={`rounded-lg border py-1.5 px-1 text-center font-mono text-[11px] font-semibold cursor-pointer ${st.bg} ${st.border} ${st.text}`}
+                          >
+                            {item.multiplier.toFixed(2)}x
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-4 rounded-xl bg-[#0B0F17] p-4 text-center text-xs text-slate-400">
+                    Clique em <strong className="text-slate-200">Registrar</strong> para montar o painel de velas de <strong className="text-slate-200">{selectedHouse}</strong> e ativar o detector de pares e sequências.
+                  </div>
+                )}
+              </section>
+            </div>
+          </div>
+
           {/* Next 15 / 30 Projected Rounds Map */}
           <section className="rounded-2xl border border-white/10 bg-[#131A26] p-4 sm:p-6">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h2 className="text-base font-semibold text-slate-100">
                   Mapa das Próximas {mapRange} Rodadas — {selectedHouse}
@@ -672,24 +1008,22 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
                 <p className="mt-0.5 text-xs text-slate-400">
                   Base <span className="font-mono text-slate-200">#{analysis.roundNumber}</span> ({analysis.timeStr}) ·{' '}
                   <span className="text-emerald-300 font-medium">{analysis.pace.label}</span>
+                  {' · '}
+                  <span className="text-slate-300">{analysis.radarVerdict.status}</span>
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={handleRegister}
-                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors cursor-pointer whitespace-nowrap"
+                  onClick={() => setShowCalibration((v) => !v)}
+                  className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                    showCalibration
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                      : 'border-white/15 bg-[#192231] text-slate-200 hover:bg-white/10'
+                  }`}
                 >
-                  <Plus className="h-4 w-4" />
-                  <span>Registrar no Histórico</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveLog}
-                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-white/15 bg-[#192231] px-3.5 py-2 text-xs font-medium text-slate-200 hover:bg-white/10 transition-colors cursor-pointer whitespace-nowrap"
-                >
-                  <BookmarkCheck className="h-4 w-4 text-emerald-400" />
-                  <span>Salvar Busca</span>
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  <span>Calibrar</span>
                 </button>
                 <button
                   type="button"
@@ -697,25 +1031,24 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
                     setShareFocusedProjected(null);
                     setShareModalOpen(true);
                   }}
-                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-sky-500/40 bg-sky-500/15 px-3.5 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-500/25 transition-colors cursor-pointer whitespace-nowrap"
+                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-sky-500/40 bg-sky-500/15 px-3 py-1.5 text-xs font-semibold text-sky-200 hover:bg-sky-500/25 transition-colors cursor-pointer whitespace-nowrap"
                 >
-                  <Share2 className="h-4 w-4" />
+                  <Share2 className="h-3.5 w-3.5" />
                   <span>Compartilhar</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => onJumpToTab('assistente')}
-                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-3.5 py-2 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-pointer whitespace-nowrap"
+                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-pointer whitespace-nowrap"
                 >
-                  <Bot className="h-4 w-4" />
-                  <span>Ler Print na IA</span>
+                  <Bot className="h-3.5 w-3.5" />
+                  <span>Assistente IA</span>
                 </button>
               </div>
             </div>
 
-            {/* Calibration & Range Controls */}
-            <div className="mt-3 flex flex-col gap-2.5 border-y border-white/10 py-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-wrap items-center gap-2">
+            {showCalibration && (
+              <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-[#0B0F17] p-3">
                 <label htmlFor="pace-mode-select" className="text-xs font-medium text-slate-400">
                   Cadência da Mesa:
                 </label>
@@ -726,7 +1059,7 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
                     onPaceModeChange(e.target.value as PaceMode);
                     setSelectedOffset(null);
                   }}
-                  className="min-h-[38px] rounded-lg border border-white/15 bg-[#0B0F17] px-2.5 text-xs font-medium text-slate-100 focus:border-emerald-500 focus:outline-none cursor-pointer"
+                  className="min-h-[36px] rounded-lg border border-white/15 bg-[#131A26] px-2.5 text-xs font-medium text-slate-100 focus:border-emerald-500 focus:outline-none cursor-pointer"
                 >
                   <option value="auto" className="bg-[#0B0F17]">
                     Auto ({customPaceSec ? `Calibrado ${customPaceSec}s` : 'Histórico / ~25.5s PDF'})
@@ -760,7 +1093,7 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
                         if (paceMode !== 'auto') onPaceModeChange('auto');
                       }
                     }}
-                    className="min-h-[34px] w-16 rounded-lg border border-white/15 bg-[#0B0F17] px-2 text-center font-mono text-xs text-slate-100 focus:border-emerald-500 focus:outline-none"
+                    className="min-h-[34px] w-16 rounded-lg border border-white/15 bg-[#131A26] px-2 text-center font-mono text-xs text-slate-100 focus:border-emerald-500 focus:outline-none"
                   />
                   {customPaceSec !== null && (
                     <button
@@ -773,9 +1106,26 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
                   )}
                 </div>
               </div>
+            )}
+
+            {/* Color Filter, Range & Legend */}
+            <div className="mt-3 flex flex-col gap-2.5 border-y border-white/10 py-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-300">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-3 w-3 rounded-sm border border-pink-400 bg-pink-500/40" aria-hidden="true" />
+                  <strong className="text-pink-300">Rosa (10x+)</strong>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-3 w-3 rounded-sm border border-violet-400 bg-violet-500/40" aria-hidden="true" />
+                  <strong className="text-violet-300">Roxa (2x–9.99x)</strong>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-3 w-3 rounded-sm border border-amber-400/70 bg-amber-500/20" aria-hidden="true" />
+                  <span className="text-slate-400">Minuto Forte</span>
+                </div>
+              </div>
 
               <div className="flex flex-wrap items-center gap-2 self-start">
-                {/* Filtro por Cor da Vela */}
                 <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-[#0B0F17] p-1">
                   <button
                     type="button"
@@ -806,7 +1156,6 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
                   </button>
                 </div>
 
-                {/* Alcance 15/30 */}
                 <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-[#0B0F17] p-1">
                   <button
                     type="button"
@@ -833,83 +1182,6 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
               </div>
             </div>
 
-            {/* Legenda de Cores das Velas do Mapa */}
-            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-slate-300">
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-sm border border-pink-400 bg-pink-500/40" aria-hidden="true" />
-                <span>
-                  <strong className="text-pink-300">Rosa (10x+ / Super Vela)</strong>
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-sm border border-violet-400 bg-violet-500/40" aria-hidden="true" />
-                <span>
-                  <strong className="text-violet-300">Roxa (2x–9.99x)</strong>
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-sm border border-amber-400/70 bg-amber-500/20" aria-hidden="true" />
-                <span className="text-slate-400">Minuto Forte (00/05/09)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-sm border border-white/15 bg-[#0B0F17]" aria-hidden="true" />
-                <span className="text-slate-500">Neutra / Aguardar</span>
-              </div>
-            </div>
-
-            {/* Radar Precision Verdict Banner */}
-            <div
-              className={`mt-4 rounded-xl border p-3.5 ${
-                analysis.radarVerdict.tone === 'positivo'
-                  ? 'border-emerald-500/40 bg-emerald-500/10'
-                  : analysis.radarVerdict.tone === 'perigo'
-                    ? 'border-red-500/40 bg-red-500/10'
-                    : 'border-amber-500/40 bg-amber-500/10'
-              }`}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <span
-                    className={`font-mono text-xs font-bold uppercase tracking-wider ${
-                      analysis.radarVerdict.tone === 'positivo'
-                        ? 'text-emerald-300'
-                        : analysis.radarVerdict.tone === 'perigo'
-                          ? 'text-red-300'
-                          : 'text-amber-300'
-                    }`}
-                  >
-                    VEREDITO DO RADAR: {analysis.radarVerdict.status}
-                  </span>
-                  <span className="text-slate-500" aria-hidden="true">·</span>
-                  <span className="text-xs text-slate-300">
-                    Fase do Gráfico: <strong className="text-slate-100">{analysis.radarVerdict.graphPhase}</strong>
-                  </span>
-                </div>
-                <div className="font-mono text-xs font-bold text-slate-100 tabular-nums">
-                  Precisão de Pico: {analysis.radarVerdict.assertivityScore}%
-                </div>
-              </div>
-              <p className="mt-1 text-xs sm:text-sm font-medium text-slate-100">
-                {analysis.radarVerdict.headline}
-              </p>
-              {analysis.radarVerdict.reasons.length > 0 && (
-                <ul className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2 text-[11px] text-slate-300">
-                  {analysis.radarVerdict.reasons.map((r, i) => (
-                    <li key={i} className="truncate">
-                      • {r}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {registerFeedback && (
-              <div className="mt-3 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-300">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                <span>{registerFeedback}</span>
-              </div>
-            )}
-
             {/* Top Confluences Strip */}
             {analysis.topConfluences.length > 0 && (
               <div className="mt-4">
@@ -918,7 +1190,7 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
                     Top Confluências (Maior Precisão)
                   </span>
                   <span className="text-[11px] text-slate-400">
-                    Cruzamento entre dígito da rodada, minuto exato, decimal e gatilhos do PDF
+                    Cruzamento entre dígito da rodada, minuto exato e gatilhos do PDF
                   </span>
                 </div>
                 <div className="grid grid-cols-1 gap-2.5 md:grid-cols-3">
@@ -1199,320 +1471,104 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
               </div>
             )}
           </section>
-
-          {/* 2-Column Results Workspace */}
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-            {/* Left Column: Calculated Rounds & Entry Signals */}
-            <section className="lg:col-span-7 rounded-2xl border border-white/10 bg-[#131A26] p-4 sm:p-6">
-              <div className="flex items-center justify-between border-b border-white/10 pb-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-100">
-                    Rodadas e Horários com Entrada
-                  </h2>
-                  <p className="text-xs text-slate-400">
-                    {analysis.signals.length} {analysis.signals.length === 1 ? 'estratégia ativa' : 'estratégias ativas'} para #{analysis.roundNumber} · {analysis.diagnostic.formatted}
-                  </p>
-                </div>
-                <Crosshair className="h-5 w-5 text-emerald-400 shrink-0" />
-              </div>
-
-              <div className="divide-y divide-white/10">
-                {analysis.signals.map((sig) => (
-                  <article key={sig.id} className="py-4 first:pt-4 last:pb-0">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                          <span className="font-medium text-emerald-400">
-                            {sig.confidence === 'alta' ? 'Alta Assertividade' : 'Sinal Complementar'}
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span>{sig.moduleSource}</span>
-                          {sig.isStrongMinute && (
-                            <>
-                              <span aria-hidden="true">·</span>
-                              <span className="text-amber-300 font-medium">Minuto Forte (00/05/09)</span>
-                            </>
-                          )}
-                        </div>
-                        <h3 className="mt-1 text-base font-semibold text-slate-100">
-                          {sig.title}
-                        </h3>
-                      </div>
-
-                      <div className="text-right">
-                        <div className="font-mono text-sm font-bold text-emerald-300">
-                          Alvo {sig.targetMultiplier}
-                        </div>
-                        <div className="font-mono text-xs text-slate-400">
-                          Proteção {sig.protection}
-                        </div>
-                      </div>
-                    </div>
-
-                    <p className="mt-2 font-mono text-xs text-slate-300">
-                      {sig.formula}
-                    </p>
-
-                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3 text-xs">
-                      <div className="rounded-lg bg-[#0B0F17] px-3 py-2">
-                        <div className="text-slate-500">Horário de Entrada</div>
-                        <div className="mt-0.5 font-mono font-semibold text-slate-100">
-                          {sig.targetTime}
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg bg-[#0B0F17] px-3 py-2">
-                        <div className="text-slate-500">Rodadas Alvo</div>
-                        <div className="mt-0.5 font-mono font-semibold text-emerald-300 truncate">
-                          {sig.targetRounds.length > 0
-                            ? sig.targetRounds.map((r) => `#${r}`).join(', ')
-                            : sig.casasLabel || 'Por minuto exato'}
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg bg-[#0B0F17] px-3 py-2 flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-slate-500">Execução</div>
-                          <div className="mt-0.5 font-medium text-slate-200 truncate">
-                            {sig.execution}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const alertKey = `manual:${sig.id}:${sig.targetTime}`;
-                            const roundsText =
-                              sig.targetRounds.length > 0
-                                ? sig.targetRounds.map((r) => `#${r}`).join(', ')
-                                : sig.casasLabel || 'Por minuto';
-                            await notifications.onScheduleSignalAlert({
-                              key: alertKey,
-                              title: `${selectedHouse} · ${sig.title}`,
-                              body: `Entrada ${sig.targetTime} | Rodadas: ${roundsText} | Alvo ${sig.targetMultiplier} (Prot. ${sig.protection})`,
-                              houseName: selectedHouse,
-                              roundNumber: sig.targetRounds[0] ? String(sig.targetRounds[0]) : roundInput,
-                              targetTime: sig.targetTime,
-                              targetMultiplier: sig.targetMultiplier,
-                              protection: sig.protection,
-                            });
-                            setScheduledSignalMap((prev) => ({ ...prev, [sig.id]: true }));
-                          }}
-                          className={`inline-flex min-h-[34px] items-center gap-1 rounded-lg border px-2.5 text-[11px] font-semibold transition-colors cursor-pointer shrink-0 ${
-                            scheduledSignalMap[sig.id]
-                              ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
-                              : 'border-white/15 bg-[#131A26] text-slate-200 hover:border-emerald-500/40 hover:text-emerald-300'
-                          }`}
-                        >
-                          <Bell className="h-3.5 w-3.5" />
-                          <span>{scheduledSignalMap[sig.id] ? 'Agendado' : 'Alertar'}</span>
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            {/* Right Column: Candle Diagnostic, Alerts & Live Board */}
-            <div className="lg:col-span-5 space-y-6">
-              {/* Diagnostic Card */}
-              <section className="rounded-2xl border border-white/10 bg-[#131A26] p-4 sm:p-6">
-                <h2 className="text-base font-semibold text-slate-100">
-                  Diagnóstico da Vela & Casa
-                </h2>
-
-                <div className="mt-4 flex items-center justify-between rounded-xl border border-white/10 bg-[#0B0F17] p-4">
-                  <div>
-                    <div className="text-xs text-slate-400">Última vela analisada</div>
-                    <div className={`mt-1 font-mono text-2xl font-bold ${CANDLE_STYLES[analysis.diagnostic.color].text}`}>
-                      {analysis.diagnostic.formatted}
-                    </div>
-                    <div className="mt-1 text-xs text-slate-400">
-                      {CANDLE_STYLES[analysis.diagnostic.color].label}
-                      {analysis.diagnostic.isSpecial && ' · Vela Especial'}
-                      {analysis.diagnostic.isCasaDos90 && ' · Casa dos 90'}
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-xs text-slate-400">Casa selecionada</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-100">{selectedHouse}</div>
-                    {analysis.diagnostic.pairedHouse && (
-                      <div className="mt-0.5 text-xs text-slate-400">
-                        Espelho: <span className="text-slate-200">{analysis.diagnostic.pairedHouse}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Time & Final Digit Diagnostics */}
-                <div className="mt-4 space-y-2.5 text-xs">
-                  <div className="flex items-start gap-2.5 rounded-xl bg-[#0B0F17] p-3">
-                    <Clock className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-medium text-slate-200">
-                        {analysis.diagnostic.isBestHour
-                          ? `Dentro de Melhor Horário (${analysis.diagnostic.bestHourLabel})`
-                          : 'Fora dos 5 horários de pico clássicos (opere apenas se o gráfico pagar)'}
-                      </div>
-                      <div className="mt-0.5 text-slate-400">
-                        Melhores horários (Mód. 4 p.50): 06–09h · 13–14h · 16h30–17h40 · 20–21h · 00–02h
-                      </div>
-                    </div>
-                  </div>
-
-                  {analysis.diagnostic.finalDigitNote && (
-                    <div className="flex items-start gap-2.5 rounded-xl bg-[#0B0F17] p-3">
-                      <AlertTriangle
-                        className={`h-4 w-4 shrink-0 mt-0.5 ${
-                          analysis.diagnostic.finalDigit === 7 ? 'text-red-400' : 'text-emerald-400'
-                        }`}
-                      />
-                      <div>
-                        <div className="font-medium text-slate-200">
-                          Dica de Ouro 2 — Final {analysis.diagnostic.finalDigit}
-                        </div>
-                        <div className="mt-0.5 text-slate-300">
-                          {analysis.diagnostic.finalDigitNote}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {analysis.diagnostic.predominantDecimal && (
-                    <div className="flex items-start gap-2.5 rounded-xl bg-[#0B0F17] p-3">
-                      <Crosshair className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-medium text-slate-200">
-                          Decimal Predominante: <span className="font-mono text-amber-300">.x{analysis.diagnostic.predominantDecimal.digit}</span> ({analysis.diagnostic.predominantDecimal.count}x no ciclo)
-                        </div>
-                        <div className="mt-0.5 text-slate-400">
-                          Treinamento III p.10: observe quando a soma decimal da vela fechar em {analysis.diagnostic.predominantDecimal.digit}.
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-start gap-2.5 rounded-xl bg-[#0B0F17] p-3">
-                    <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <div>
-                      <div className="font-medium text-slate-200">
-                        Proteção Recomendada (Módulo 5 p.17)
-                      </div>
-                      <div className="mt-0.5 text-slate-400">
-                        1ª mão cobrindo em <span className="font-mono text-slate-200">1.49x</span> (ou 2.00x mão igual) e 2ª mão no alvo <span className="font-mono text-slate-200">5x / 10x</span>.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* Sequence Alerts & Live House Board Preview */}
-              <section className="rounded-2xl border border-white/10 bg-[#131A26] p-4 sm:p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-base font-semibold text-slate-100">
-                      Padrões do Gráfico ({selectedHouse})
-                    </h2>
-                    <p className="text-xs text-slate-400">
-                      {houseHistory.length === 0
-                        ? 'Registre rodadas para detectar pares e sequências'
-                        : `${houseHistory.length} rodadas registradas nesta casa`}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onJumpToTab('historico')}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 hover:text-emerald-300 cursor-pointer"
-                  >
-                    <span>Ver tudo</span>
-                    <TrendingUp className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                {analysis.sequenceAlerts.length > 0 && (
-                  <div className="mt-4 space-y-2.5">
-                    {analysis.sequenceAlerts.map((alert) => (
-                      <div
-                        key={alert.id}
-                        className={`rounded-xl border p-3 text-xs ${
-                          alert.severity === 'perigo'
-                            ? 'border-red-500/35 bg-red-500/10 text-red-200'
-                            : alert.severity === 'alerta'
-                              ? 'border-amber-500/35 bg-amber-500/10 text-amber-200'
-                              : 'border-emerald-500/35 bg-emerald-500/10 text-emerald-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2 font-semibold">
-                          <span>{alert.title}</span>
-                          <span className="text-[11px] opacity-80">{alert.source}</span>
-                        </div>
-                        <p className="mt-1 opacity-90">{alert.description}</p>
-                        <p className="mt-1 font-medium">Ação: {alert.action}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {houseHistory.length > 0 ? (
-                  <>
-                    <div className="mt-4 grid grid-cols-3 gap-2 text-center font-mono text-xs">
-                      <div className="rounded-lg bg-[#0B0F17] p-2">
-                        <div className="text-sky-400 font-semibold">{analysis.boardStats.azulPct}%</div>
-                        <div className="text-[11px] text-slate-500">Azuis ({analysis.boardStats.azulCount})</div>
-                      </div>
-                      <div className="rounded-lg bg-[#0B0F17] p-2">
-                        <div className="text-violet-400 font-semibold">{analysis.boardStats.roxoPct}%</div>
-                        <div className="text-[11px] text-slate-500">Roxos ({analysis.boardStats.roxoCount})</div>
-                      </div>
-                      <div className="rounded-lg bg-[#0B0F17] p-2">
-                        <div className="text-pink-400 font-semibold">{analysis.boardStats.rosaPct}%</div>
-                        <div className="text-[11px] text-slate-500">Rosas ({analysis.boardStats.rosaCount})</div>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-6 gap-1.5">
-                      {houseHistory.slice(0, 18).map((item) => {
-                        const c = item.multiplier >= 10 ? 'rosa' : item.multiplier >= 2 ? 'roxo' : 'azul';
-                        const st = CANDLE_STYLES[c];
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => {
-                              onRoundInputChange(String(item.roundNumber));
-                              onMultiplierInputChange(item.multiplier.toFixed(2));
-                              onTimeInputChange(item.timeStr);
-                            }}
-                            title={`Rodada #${item.roundNumber} · ${item.timeStr}`}
-                            className={`rounded-lg border py-1.5 px-1 text-center font-mono text-[11px] font-semibold cursor-pointer ${st.bg} ${st.border} ${st.text}`}
-                          >
-                            {item.multiplier.toFixed(2)}x
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </>
-                ) : (
-                  <div className="mt-4 rounded-xl bg-[#0B0F17] p-4 text-center text-xs text-slate-400">
-                    Clique em <strong className="text-slate-200">Registrar no Histórico</strong> para montar o painel de velas de <strong className="text-slate-200">{selectedHouse}</strong> e ativar o detector de pares e sequências.
-                  </div>
-                )}
-              </section>
-            </div>
-          </div>
         </>
       )}
 
-      {/* Melhores Horários, Minutos Fortes & Estatística do Jogo */}
-      <EstatisticasHorariosPanel
-        houseName={selectedHouse}
-        history={houseHistory}
-        recentCandlesText={recentCandlesText}
-        searchLog={searchLog}
-        analysis={analysis}
-        onScheduleAlert={notifications.onScheduleSignalAlert}
-      />
+      {/* Compact Expandable Bar: Melhores Horários, Minutos Fortes & Estatísticas */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#131A26] px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <BarChart3 className="h-4 w-4 text-emerald-400 shrink-0" />
+            <span className="font-semibold text-slate-100">Melhores Horários, Minutos Fortes & Estatísticas</span>
+            <span className="text-slate-500">·</span>
+            <span className="font-mono text-slate-300">
+              {liveSchedule.activeWindow
+                ? `Pico ativo (${liveSchedule.activeWindow.label})`
+                : `Próx. pico ${liveSchedule.nextWindow.start}`}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowStatsPanel((v) => !v)}
+            className="inline-flex min-h-[34px] items-center gap-1.5 rounded-xl border border-white/15 bg-[#192231] px-3 text-xs font-medium text-slate-200 hover:bg-white/10 transition-colors cursor-pointer"
+          >
+            <span>{showStatsPanel ? 'Ocultar Painel' : 'Abrir Horários & Estatísticas'}</span>
+            {showStatsPanel ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+        </div>
+
+        {showStatsPanel && (
+          <EstatisticasHorariosPanel
+            houseName={selectedHouse}
+            history={houseHistory}
+            recentCandlesText={recentCandlesText}
+            searchLog={searchLog}
+            analysis={analysis}
+            onScheduleAlert={notifications.onScheduleSignalAlert}
+          />
+        )}
+      </div>
+
+      {/* Compact Expandable Bar: Real-Time Background Notifications */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#131A26] px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <BellRing
+              className={`h-4 w-4 shrink-0 ${
+                notifications.permission === 'granted' ? 'text-emerald-400' : 'text-amber-400'
+              }`}
+            />
+            <span className="font-semibold text-slate-100">Alertas em 2º Plano & Tempo Real</span>
+            <span className="text-slate-500">·</span>
+            <span className="text-slate-300">
+              {notifications.scheduledAlerts.length} agendado(s)
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {notifications.permission !== 'granted' && (
+              <button
+                type="button"
+                onClick={notifications.onEnableBackground}
+                disabled={notifications.isEnabling}
+                className="inline-flex min-h-[34px] items-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60 transition-colors cursor-pointer"
+              >
+                <Bell className="h-3.5 w-3.5" />
+                <span>{notifications.isEnabling ? 'Ativando...' : 'Ativar Alertas'}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowAlertsPanel((v) => !v)}
+              className="inline-flex min-h-[34px] items-center gap-1.5 rounded-xl border border-white/15 bg-[#192231] px-3 text-xs font-medium text-slate-200 hover:bg-white/10 transition-colors cursor-pointer"
+            >
+              <span>{showAlertsPanel ? 'Ocultar' : 'Configurar Alertas'}</span>
+              {showAlertsPanel ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        </div>
+
+        {showAlertsPanel && (
+          <RealtimeAlertsPanel
+            houseName={selectedHouse}
+            roundNumber={roundInput}
+            permission={notifications.permission}
+            isPushSubscribed={notifications.isPushSubscribed}
+            sseConnected={notifications.sseConnected}
+            statusNote={notifications.statusNote}
+            isEnabling={notifications.isEnabling}
+            soundEnabled={notifications.soundEnabled}
+            onToggleSound={notifications.onToggleSound}
+            autoMonitor={notifications.autoMonitor}
+            onToggleAutoMonitor={notifications.onToggleAutoMonitor}
+            leadSeconds={notifications.leadSeconds}
+            onLeadSecondsChange={notifications.onLeadSecondsChange}
+            scheduledAlerts={notifications.scheduledAlerts}
+            onEnableBackground={notifications.onEnableBackground}
+            onTestNotification={notifications.onTestNotification}
+            onCancelAlert={notifications.onCancelAlert}
+          />
+        )}
+      </div>
 
       <ShareRoundsModal
         isOpen={shareModalOpen}

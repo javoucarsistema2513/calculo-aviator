@@ -1,22 +1,19 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
   Bell,
   Bot,
   CheckCircle2,
-  ClipboardPaste,
-  ImagePlus,
   Loader2,
   MessageSquare,
   Plus,
   Send,
   ShieldCheck,
   Sparkles,
-  Trash2,
-  Upload,
 } from 'lucide-react';
 import { ALL_HOUSES } from '../data/aviatorRules';
+import { fetchJson } from '../utils/apiClient';
 
 export interface ExtractedCandleItem {
   vela: number;
@@ -100,7 +97,7 @@ const QUICK_ASK_SUGGESTIONS = [
 ];
 
 const QUICK_PROMPTS = [
-  'Ler print das rodadas e calcular próximas entradas',
+  'Analisar sequência de velas e calcular próximas entradas',
   'Identificar decimais predominantes e casamento de velas',
   'Avaliar se o gráfico na 82B está Pagante ou Recolhe',
   'Checar gatilhos de Rosa (10x+) e proteção 1.49x',
@@ -116,48 +113,6 @@ function getCandleStyle(vela: number) {
   return 'border-sky-500/40 bg-sky-500/15 text-sky-300';
 }
 
-async function prepareImagePayload(file: File): Promise<{ base64: string; mimeType: string; previewUrl: string }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Falha ao ler a imagem selecionada.'));
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const img = new Image();
-      img.onerror = () => {
-        const [, rawBase64 = ''] = dataUrl.split(',');
-        resolve({ base64: rawBase64, mimeType: file.type || 'image/png', previewUrl: dataUrl });
-      };
-      img.onload = () => {
-        const maxDim = 1600;
-        let { width, height } = img;
-        if (width <= maxDim && height <= maxDim && file.size <= 3 * 1024 * 1024) {
-          const [, rawBase64 = ''] = dataUrl.split(',');
-          resolve({ base64: rawBase64, mimeType: file.type || 'image/png', previewUrl: dataUrl });
-          return;
-        }
-        const scale = Math.min(1, maxDim / Math.max(width, height));
-        width = Math.max(1, Math.round(width * scale));
-        height = Math.max(1, Math.round(height * scale));
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          const [, rawBase64 = ''] = dataUrl.split(',');
-          resolve({ base64: rawBase64, mimeType: file.type || 'image/png', previewUrl: dataUrl });
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        const compressedUrl = canvas.toDataURL('image/jpeg', 0.88);
-        const [, compressedBase64 = ''] = compressedUrl.split(',');
-        resolve({ base64: compressedBase64, mimeType: 'image/jpeg', previewUrl: compressedUrl });
-      };
-      img.src = dataUrl;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
   selectedHouse,
   customHouses,
@@ -171,16 +126,8 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
   prefilledHistory,
   onConsumePrefilledHistory,
 }) => {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
   const [showAddHouse, setShowAddHouse] = useState(false);
   const [newHouseName, setNewHouseName] = useState('');
-
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [imageBase64, setImageBase64] = useState<string | null>(null);
-  const [imageMimeType, setImageMimeType] = useState<string | null>(null);
-  const [imageName, setImageName] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
 
   const [decimalsText, setDecimalsText] = useState('');
 
@@ -220,50 +167,6 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
     setShowAddHouse(false);
   };
 
-  const handleFileSelected = async (file: File | null | undefined) => {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setAnalyzeError('Selecione um arquivo de imagem válido (PNG, JPG ou WebP).');
-      return;
-    }
-    try {
-      setAnalyzeError(null);
-      const prepared = await prepareImagePayload(file);
-      setImagePreview(prepared.previewUrl);
-      setImageBase64(prepared.base64);
-      setImageMimeType(prepared.mimeType);
-      setImageName(file.name || 'print-rodadas.png');
-    } catch (err) {
-      setAnalyzeError(err instanceof Error ? err.message : 'Erro ao processar a imagem.');
-    }
-  };
-
-  const handlePaste = async (e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (let i = 0; i < items.length; i += 1) {
-      const item = items[i];
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) {
-          e.preventDefault();
-          await handleFileSelected(file);
-          return;
-        }
-      }
-    }
-  };
-
-  const handleClearImage = () => {
-    setImagePreview(null);
-    setImageBase64(null);
-    setImageMimeType(null);
-    setImageName(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
   const handlePullFromBuscador = () => {
     setLocalRound(roundInput);
     setLocalCandle(multiplierInput);
@@ -272,8 +175,8 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
 
   const handleAnalyze = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!imageBase64 && !decimalsText.trim() && !localCandle.trim() && !promptText.trim()) {
-      setAnalyzeError('Envie um print das rodadas, informe os decimais/velas ou escreva uma instrução para a IA.');
+    if (!decimalsText.trim() && !localCandle.trim() && !promptText.trim()) {
+      setAnalyzeError('Informe os decimais/velas, a última vela ou escreva uma instrução para a IA.');
       return;
     }
 
@@ -282,7 +185,7 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
     setApplyFeedback(null);
 
     try {
-      const response = await fetch('/api/aviator/analyze', {
+      const data = await fetchJson<{ analysis?: AviatorAIAnalysis; error?: string }>('/api/aviator/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -292,13 +195,10 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
           timeStr: localTime.trim() || undefined,
           decimalsText: decimalsText.trim() || undefined,
           userPrompt: promptText.trim() || undefined,
-          imageBase64: imageBase64 || undefined,
-          imageMimeType: imageMimeType || undefined,
         }),
       });
 
-      const data = (await response.json()) as { analysis?: AviatorAIAnalysis; error?: string };
-      if (!response.ok || !data.analysis) {
+      if (!data.analysis) {
         throw new Error(data.error || 'Não foi possível concluir a análise da IA.');
       }
 
@@ -354,7 +254,7 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
     setIsChatting(true);
 
     try {
-      const response = await fetch('/api/aviator/chat', {
+      const data = await fetchJson<{ reply?: string; error?: string }>('/api/aviator/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -367,8 +267,7 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
         }),
       });
 
-      const data = (await response.json()) as { reply?: string; error?: string };
-      if (!response.ok || !data.reply) {
+      if (!data.reply) {
         throw new Error(data.error || 'Falha ao obter resposta do assistente.');
       }
 
@@ -422,7 +321,7 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
   };
 
   return (
-    <div className="space-y-6" onPaste={handlePaste}>
+    <div className="space-y-6">
       {/* Dedicated Top AI Question Field */}
       <section className="rounded-2xl border border-emerald-500/30 bg-[#131A26] p-4 sm:p-6">
         <div className="flex flex-col gap-3 border-b border-white/10 pb-4 sm:flex-row sm:items-center sm:justify-between">
@@ -534,19 +433,19 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
         )}
       </section>
 
-      {/* Print & Decimals Analysis Workspace */}
+      {/* Decimals & Rounds Analysis Workspace */}
       <section className="rounded-2xl border border-white/10 bg-[#131A26] p-4 sm:p-6">
         <div className="flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="flex items-center gap-2 text-xs font-medium text-emerald-400">
               <Bot className="h-4 w-4" />
-              <span>Leitura Multimodal · PDFs Módulos 1 a 5 & Treinamento III</span>
+              <span>Análise Inteligente · PDFs Módulos 1 a 5 & Treinamento III</span>
             </div>
             <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-50">
-              Analisar Print das Rodadas & Decimais
+              Analisar Decimais & Rodadas com IA
             </h2>
             <p className="mt-1 text-sm text-slate-400 max-w-2xl">
-              Envie ou cole (<span className="font-mono text-slate-300">Ctrl+V</span>) o print do histórico de rodadas e os decimais da <span className="font-semibold text-emerald-300">{selectedHouse}</span> para extração automática e agendamento de alertas.
+              Informe a sequência de velas, decimais, número da rodada ou horário da <span className="font-semibold text-emerald-300">{selectedHouse}</span> para calcular entradas e agendar alertas.
             </p>
           </div>
 
@@ -560,7 +459,7 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
         </div>
 
         <form onSubmit={handleAnalyze} className="mt-5 grid grid-cols-1 gap-6 lg:grid-cols-12">
-          {/* Left Column: Print Dropzone + House Selector */}
+          {/* Left Column: House Selector + Round/Candle/Time */}
           <div className="lg:col-span-5 space-y-4">
             {/* Casa Selector */}
             <div>
@@ -611,98 +510,52 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
               )}
             </div>
 
-            {/* Print Upload / Paste Zone */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-medium text-slate-300">
-                  Print das Rodadas (Imagem / Ctrl+V)
-                </span>
-                {imagePreview && (
-                  <button
-                    type="button"
-                    onClick={handleClearImage}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-300 cursor-pointer"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    <span>Remover print</span>
-                  </button>
-                )}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              <div>
+                <label htmlFor="ai-round-input" className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Rodada Atual (opcional)
+                </label>
+                <input
+                  id="ai-round-input"
+                  type="text"
+                  inputMode="numeric"
+                  value={localRound}
+                  onChange={(e) => setLocalRound(e.target.value.replace(/\D/g, ''))}
+                  placeholder="Ex: 4310524"
+                  className="min-h-[44px] w-full rounded-xl border border-white/15 bg-[#0B0F17] px-3 font-mono text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
+                />
               </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => handleFileSelected(e.target.files?.[0])}
-              />
-
-              {imagePreview ? (
-                <div className="relative overflow-hidden rounded-xl border border-emerald-500/35 bg-[#0B0F17]">
-                  <img
-                    src={imagePreview}
-                    alt="Print das rodadas do Aviator"
-                    className="max-h-64 w-full object-contain bg-black/40"
-                  />
-                  <div className="flex items-center justify-between border-t border-white/10 px-3 py-2 text-xs text-slate-400">
-                    <span className="truncate">{imageName || 'print-anexado.png'}</span>
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="font-medium text-emerald-400 hover:text-emerald-300 cursor-pointer shrink-0 ml-2"
-                    >
-                      Trocar print
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => fileInputRef.current?.click()}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      fileInputRef.current?.click();
-                    }
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={async (e) => {
-                    e.preventDefault();
-                    setIsDragging(false);
-                    await handleFileSelected(e.dataTransfer.files?.[0]);
-                  }}
-                  className={`flex min-h-[190px] flex-col items-center justify-center rounded-xl border-2 border-dashed p-5 text-center transition-colors cursor-pointer ${
-                    isDragging
-                      ? 'border-emerald-400 bg-emerald-500/10'
-                      : 'border-white/15 bg-[#0B0F17] hover:border-emerald-500/50'
-                  }`}
-                >
-                  <ImagePlus className="h-8 w-8 text-emerald-400" />
-                  <p className="mt-2.5 text-sm font-medium text-slate-200">
-                    Toque para enviar o print das rodadas
-                  </p>
-                  <p className="mt-1 text-xs text-slate-400 max-w-xs">
-                    Arraste a captura de tela do histórico da <span className="text-slate-200 font-medium">{selectedHouse}</span> ou pressione <span className="font-mono text-slate-200">Ctrl+V</span> aqui.
-                  </p>
-                  <div className="mt-3 flex items-center gap-3 text-[11px] text-slate-500">
-                    <span className="inline-flex items-center gap-1">
-                      <Upload className="h-3.5 w-3.5" /> PNG / JPG / WebP
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <ClipboardPaste className="h-3.5 w-3.5" /> Colar print
-                    </span>
-                  </div>
-                </div>
-              )}
+              <div>
+                <label htmlFor="ai-candle-input" className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Última Vela (opcional)
+                </label>
+                <input
+                  id="ai-candle-input"
+                  type="text"
+                  inputMode="decimal"
+                  value={localCandle}
+                  onChange={(e) => setLocalCandle(e.target.value)}
+                  placeholder="Ex: 12.56"
+                  className="min-h-[44px] w-full rounded-xl border border-white/15 bg-[#0B0F17] px-3 font-mono text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label htmlFor="ai-time-input" className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Horário (opcional)
+                </label>
+                <input
+                  id="ai-time-input"
+                  type="text"
+                  value={localTime}
+                  onChange={(e) => setLocalTime(e.target.value)}
+                  placeholder="16:21:23"
+                  className="min-h-[44px] w-full rounded-xl border border-white/15 bg-[#0B0F17] px-3 font-mono text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
             </div>
           </div>
 
-          {/* Right Column: Decimals + Round/Time + Prompt */}
+          {/* Right Column: Decimals + Prompt */}
           <div className="lg:col-span-7 flex flex-col justify-between space-y-4">
             <div className="space-y-4">
               <div>
@@ -710,11 +563,10 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
                   <label htmlFor="ai-decimals-input" className="text-xs font-medium text-slate-300">
                     Campo de Decimais e Sequência de Velas
                   </label>
-                  <span className="text-[11px] text-slate-500">Opcional se enviar print</span>
                 </div>
                 <textarea
                   id="ai-decimals-input"
-                  rows={3}
+                  rows={4}
                   value={decimalsText}
                   onChange={(e) => setDecimalsText(e.target.value)}
                   placeholder="Ex: 1.37 1.00 2.45 12.56 1.88 1.11 ou digite os decimais predominantes (.37, .00, .89)..."
@@ -722,53 +574,9 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div>
-                  <label htmlFor="ai-round-input" className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Rodada Atual (opcional)
-                  </label>
-                  <input
-                    id="ai-round-input"
-                    type="text"
-                    inputMode="numeric"
-                    value={localRound}
-                    onChange={(e) => setLocalRound(e.target.value.replace(/\D/g, ''))}
-                    placeholder="Ex: 4310524"
-                    className="min-h-[44px] w-full rounded-xl border border-white/15 bg-[#0B0F17] px-3 font-mono text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="ai-candle-input" className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Última Vela (opcional)
-                  </label>
-                  <input
-                    id="ai-candle-input"
-                    type="text"
-                    inputMode="decimal"
-                    value={localCandle}
-                    onChange={(e) => setLocalCandle(e.target.value)}
-                    placeholder="Ex: 12.56"
-                    className="min-h-[44px] w-full rounded-xl border border-white/15 bg-[#0B0F17] px-3 font-mono text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="ai-time-input" className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Horário (opcional)
-                  </label>
-                  <input
-                    id="ai-time-input"
-                    type="text"
-                    value={localTime}
-                    onChange={(e) => setLocalTime(e.target.value)}
-                    placeholder="16:21:23"
-                    className="min-h-[44px] w-full rounded-xl border border-white/15 bg-[#0B0F17] px-3 font-mono text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
               <div>
                 <label htmlFor="ai-prompt-input" className="block text-xs font-medium text-slate-300 mb-1.5">
-                  Instrução para análise do print / decimais
+                  Instrução para análise do Assistente de IA
                 </label>
                 <input
                   id="ai-prompt-input"
@@ -812,12 +620,12 @@ export const AssistenteIAView: React.FC<AssistenteIAViewProps> = ({
                 {isAnalyzing ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Lendo print & decimais...</span>
+                    <span>Analisando com a IA...</span>
                   </>
                 ) : (
                   <>
                     <Sparkles className="h-4 w-4" />
-                    <span>Analisar Print & Decimais</span>
+                    <span>Analisar com IA</span>
                   </>
                 )}
               </button>

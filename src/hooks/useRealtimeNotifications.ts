@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchJson } from '../utils/apiClient';
 import { RoundSignal } from '../utils/aviatorEngine';
 
 export interface ScheduledAlertItem {
@@ -178,7 +179,7 @@ export function useRealtimeNotifications() {
         const existing = await reg.pushManager.getSubscription();
         if (existing && active) {
           setIsPushSubscribed(true);
-          await fetch('/api/notifications/subscribe', {
+          await fetchJson('/api/notifications/subscribe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ clientId, subscription: existing.toJSON() }),
@@ -306,8 +307,9 @@ export function useRealtimeNotifications() {
         const reg = await navigator.serviceWorker.ready;
         if ('pushManager' in reg) {
           try {
-            const keyRes = await fetch('/api/notifications/vapid-public-key');
-            const { publicKey } = (await keyRes.json()) as { publicKey: string };
+            const { publicKey } = await fetchJson<{ publicKey: string }>(
+              '/api/notifications/vapid-public-key'
+            );
             let sub = await reg.pushManager.getSubscription();
             if (!sub && publicKey) {
               const convertedKey = urlBase64ToUint8Array(publicKey);
@@ -317,7 +319,7 @@ export function useRealtimeNotifications() {
               });
             }
             if (sub) {
-              await fetch('/api/notifications/subscribe', {
+              await fetchJson('/api/notifications/subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ clientId, subscription: sub.toJSON() }),
@@ -367,26 +369,29 @@ export function useRealtimeNotifications() {
         }
       }
 
-      const res = await fetch('/api/notifications/schedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientId,
-          key: params.key,
-          title: params.title,
-          body: params.body,
-          houseName: params.houseName,
-          roundNumber: params.roundNumber,
-          targetTime: params.targetTime,
-          targetMultiplier: params.targetMultiplier,
-          protection: params.protection,
-          triggerAtMs,
-        }),
-      });
+      try {
+        const data = await fetchJson<{ alerts?: ScheduledAlertItem[] }>('/api/notifications/schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientId,
+            key: params.key,
+            title: params.title,
+            body: params.body,
+            houseName: params.houseName,
+            roundNumber: params.roundNumber,
+            targetTime: params.targetTime,
+            targetMultiplier: params.targetMultiplier,
+            protection: params.protection,
+            triggerAtMs,
+          }),
+        });
 
-      const data = (await res.json()) as { alerts?: ScheduledAlertItem[] };
-      if (Array.isArray(data.alerts)) {
-        setScheduledAlerts(data.alerts);
+        if (Array.isArray(data.alerts)) {
+          setScheduledAlerts(data.alerts);
+        }
+      } catch {
+        // silent fallback if server is temporarily unavailable
       }
     },
     [clientId, leadSeconds]
@@ -394,58 +399,65 @@ export function useRealtimeNotifications() {
 
   const syncAutoSignals = useCallback(
     async (houseName: string, signals: RoundSignal[]) => {
-      if (!autoMonitor) {
-        await fetch('/api/notifications/sync-batch', {
+      try {
+        if (!autoMonitor) {
+          await fetchJson('/api/notifications/sync-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientId, houseName, items: [] }),
+          });
+          return;
+        }
+
+        const now = Date.now();
+        const maxWindow = now + 90 * 60 * 1000;
+        const items = signals
+          .map((sig) => {
+            const targetMs = parseTargetTimeToFutureMs(sig.targetTime);
+            if (!targetMs || targetMs > maxWindow) return null;
+            const triggerAtMs = targetMs - leadSeconds * 1000;
+            if (triggerAtMs < now - 10_000) return null;
+            const roundsLabel =
+              sig.targetRounds.length > 0
+                ? sig.targetRounds.map((r) => `#${r}`).join(', ')
+                : sig.casasLabel || 'Por minuto';
+            return {
+              key: `auto:${sig.id}`,
+              title: `${houseName} · ${sig.title}`,
+              body: `Entrada ${sig.targetTime} | Rodadas: ${roundsLabel} | Alvo ${sig.targetMultiplier} (Proteção ${sig.protection})`,
+              roundNumber: sig.targetRounds[0] ? String(sig.targetRounds[0]) : undefined,
+              targetTime: sig.targetTime,
+              targetMultiplier: sig.targetMultiplier,
+              protection: sig.protection,
+              triggerAtMs: Math.max(now + 3000, triggerAtMs),
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => x !== null);
+
+        const data = await fetchJson<{ alerts?: ScheduledAlertItem[] }>('/api/notifications/sync-batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ clientId, houseName, items: [] }),
+          body: JSON.stringify({ clientId, houseName, items }),
         });
-        return;
-      }
 
-      const now = Date.now();
-      const maxWindow = now + 90 * 60 * 1000;
-      const items = signals
-        .map((sig) => {
-          const targetMs = parseTargetTimeToFutureMs(sig.targetTime);
-          if (!targetMs || targetMs > maxWindow) return null;
-          const triggerAtMs = targetMs - leadSeconds * 1000;
-          if (triggerAtMs < now - 10_000) return null;
-          const roundsLabel =
-            sig.targetRounds.length > 0
-              ? sig.targetRounds.map((r) => `#${r}`).join(', ')
-              : sig.casasLabel || 'Por minuto';
-          return {
-            key: `auto:${sig.id}`,
-            title: `${houseName} · ${sig.title}`,
-            body: `Entrada ${sig.targetTime} | Rodadas: ${roundsLabel} | Alvo ${sig.targetMultiplier} (Proteção ${sig.protection})`,
-            roundNumber: sig.targetRounds[0] ? String(sig.targetRounds[0]) : undefined,
-            targetTime: sig.targetTime,
-            targetMultiplier: sig.targetMultiplier,
-            protection: sig.protection,
-            triggerAtMs: Math.max(now + 3000, triggerAtMs),
-          };
-        })
-        .filter((x): x is NonNullable<typeof x> => x !== null);
-
-      const res = await fetch('/api/notifications/sync-batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, houseName, items }),
-      });
-
-      const data = (await res.json()) as { alerts?: ScheduledAlertItem[] };
-      if (Array.isArray(data.alerts)) {
-        setScheduledAlerts(data.alerts);
+        if (Array.isArray(data.alerts)) {
+          setScheduledAlerts(data.alerts);
+        }
+      } catch {
+        // ignore transient background sync failures
       }
     },
     [autoMonitor, clientId, leadSeconds]
   );
 
   const cancelAlert = useCallback(async (id: string) => {
-    await fetch(`/api/notifications/schedule/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
+    try {
+      await fetchJson(`/api/notifications/schedule/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+    } catch {
+      // ignore if already removed
+    }
     setScheduledAlerts((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
@@ -454,11 +466,15 @@ export function useRealtimeNotifications() {
       if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
         await enableBackgroundNotifications();
       }
-      await fetch('/api/notifications/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, houseName, roundNumber }),
-      });
+      try {
+        await fetchJson('/api/notifications/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientId, houseName, roundNumber }),
+        });
+      } catch (err) {
+        setStatusNote(err instanceof Error ? err.message : 'Falha ao enviar alerta de teste.');
+      }
     },
     [clientId, enableBackgroundNotifications]
   );

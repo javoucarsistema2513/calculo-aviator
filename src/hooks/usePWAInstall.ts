@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -7,34 +7,25 @@ interface BeforeInstallPromptEvent extends Event {
 
 export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstallable, setIsInstallable] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
-    // Check if running as standalone PWA
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||
       (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+    setIsInstalled(isStandalone);
 
-    if (isStandalone) {
-      setIsInstalled(true);
-    }
-
-    // Check iOS
     const userAgent = window.navigator.userAgent.toLowerCase();
-    const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
-    setIsIOS(isIosDevice);
+    setIsIOS(/iphone|ipad|ipod/.test(userAgent));
 
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
-      setIsInstallable(true);
     };
 
     const handleAppInstalled = () => {
       setIsInstalled(true);
-      setIsInstallable(false);
       setDeferredPrompt(null);
     };
 
@@ -47,21 +38,22 @@ export function usePWAInstall() {
     };
   }, []);
 
-  const installApp = async () => {
+  const install = async () => {
     if (!deferredPrompt) return false;
-
-    deferredPrompt.prompt();
-    const choiceResult = await deferredPrompt.userChoice;
-
-    if (choiceResult.outcome === 'accepted') {
+    await deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
       setIsInstalled(true);
-      setIsInstallable(false);
       setDeferredPrompt(null);
       return true;
     }
-
     return false;
   };
 
-  return { isInstallable, isInstalled, isIOS, installApp };
+  return {
+    isInstallable: !!deferredPrompt,
+    isInstalled,
+    isIOS,
+    install,
+  };
 }
