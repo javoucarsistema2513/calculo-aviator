@@ -1,396 +1,603 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Header } from './components/Header';
-import { CandleInput } from './components/CandleInput';
-import { PredictionResults } from './components/PredictionResults';
-import { HistoricFeed } from './components/HistoricFeed';
-import { TriggersCheatsheet } from './components/TriggersCheatsheet';
-import { RiskManagementModal } from './components/RiskManagementModal';
-import { Candle, RiskProfile } from './types/aviator';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BookOpen, Bot, Flame, History, Search, Wallet } from 'lucide-react';
+import { AssistenteIAView, ExtractedCandleItem } from './components/AssistenteIAView';
+import { BancaMetasView } from './components/BancaMetasView';
+import { BuscadorView } from './components/BuscadorView';
+import { GatilhosCatalogoView } from './components/GatilhosCatalogoView';
+import { HistoricoPadroesView } from './components/HistoricoPadroesView';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { PWAInstallButton } from './components/PWAInstallButton';
+import { RealtimeAlertToast } from './components/RealtimeAlertsPanel';
+import { SuperVelasPanel } from './components/SuperVelasPanel';
+import { useRealtimeNotifications } from './hooks/useRealtimeNotifications';
 import {
-  calculateHousePredictions,
-  calculateImmediateTimePredictions,
-  calculateLongTermHorizons,
-  detectPatterns,
-  formatTime,
-  PDF_EXAMPLES,
-} from './utils/aviatorCalculations';
-import {
-  Calculator,
-  BookOpen,
-  ShieldCheck,
-  Flame,
-  Info,
-  Layers,
-  ChevronRight,
-  TrendingUp,
-  Award
-} from 'lucide-react';
+  EntryMode,
+  PaceMode,
+  PayoutMood,
+  RoundEntry,
+  SearchLogItem,
+  analyzeAviatorRound,
+  getCurrentTimeStr,
+} from './utils/aviatorEngine';
 
-const INITIAL_DEMO_CANDLES: Candle[] = [
-  { id: '1', multiplier: 10.75, time: '12:15:00', roundId: '4310619', timestamp: Date.now() - 60000 },
-  { id: '2', multiplier: 2.31, time: '12:14:40', roundId: '4310618', timestamp: Date.now() - 80000 },
-  { id: '3', multiplier: 1.37, time: '12:14:15', roundId: '4310617', timestamp: Date.now() - 105000 },
-  { id: '4', multiplier: 1.00, time: '12:13:50', roundId: '4310616', timestamp: Date.now() - 130000 },
-  { id: '5', multiplier: 3.42, time: '12:13:20', roundId: '4310615', timestamp: Date.now() - 160000 },
-  { id: '6', multiplier: 1.88, time: '12:12:55', roundId: '4310614', timestamp: Date.now() - 185000 },
-  { id: '7', multiplier: 15.36, time: '12:12:30', roundId: '4310613', timestamp: Date.now() - 210000 },
-  { id: '8', multiplier: 1.24, time: '12:12:05', roundId: '4310612', timestamp: Date.now() - 235000 },
-  { id: '9', multiplier: 2.82, time: '12:11:40', roundId: '4310611', timestamp: Date.now() - 260000 },
-  { id: '10', multiplier: 37.89, time: '12:11:10', roundId: '4310610', timestamp: Date.now() - 290000 },
-  { id: '11', multiplier: 1.08, time: '12:10:45', roundId: '4310609', timestamp: Date.now() - 315000 },
-  { id: '12', multiplier: 1.15, time: '12:10:20', roundId: '4310608', timestamp: Date.now() - 340000 },
-];
+type ActiveTab = 'buscador' | 'supervelas' | 'assistente' | 'historico' | 'gatilhos' | 'banca';
+
+const STORAGE_KEYS = {
+  house: 'aviator_radar_selected_house',
+  customHouses: 'aviator_radar_custom_houses',
+  historyMap: 'aviator_radar_history_by_house',
+  searchLog: 'aviator_radar_search_log',
+  paceMode: 'aviator_radar_pace_mode',
+  paceByHouse: 'aviator_radar_pace_by_house',
+};
+
+function readStorage<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function readSharedQueryParams(): {
+  tab?: ActiveTab;
+  house?: string;
+  round?: string;
+  mult?: string;
+  time?: string;
+  mode?: EntryMode;
+  mood?: PayoutMood;
+  pace?: PaceMode;
+  sround?: string;
+  smult?: string;
+  stime?: string;
+  smood?: PayoutMood;
+} {
+  if (typeof window === 'undefined') return {};
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const rawTab = sp.get('tab');
+    const tab: ActiveTab | undefined = rawTab === 'supervelas' ? 'supervelas' : undefined;
+    const house = sp.get('house')?.trim() || undefined;
+    const round = sp.get('round')?.replace(/\D/g, '') || undefined;
+    const mult = sp.get('mult')?.trim() || undefined;
+    const time = sp.get('time')?.trim() || undefined;
+    const rawMode = sp.get('mode');
+    const mode: EntryMode | undefined =
+      rawMode === 'antes' || rawMode === 'exato' ? rawMode : undefined;
+    const rawMood = sp.get('mood');
+    const mood: PayoutMood | undefined =
+      rawMood === 'positivo' || rawMood === 'negativo' ? rawMood : undefined;
+    const rawPace = sp.get('pace');
+    const pace: PaceMode | undefined =
+      rawPace === 'auto' || rawPace === 'rapido' || rawPace === 'padrao' || rawPace === 'lento'
+        ? rawPace
+        : undefined;
+    const sround = sp.get('sround')?.replace(/\D/g, '') || undefined;
+    const smult = sp.get('smult')?.trim() || undefined;
+    const stime = sp.get('stime')?.trim() || undefined;
+    const rawSmood = sp.get('smood');
+    const smood: PayoutMood | undefined =
+      rawSmood === 'positivo' || rawSmood === 'negativo' ? rawSmood : undefined;
+    return { tab, house, round, mult, time, mode, mood, pace, sround, smult, stime, smood };
+  } catch {
+    return {};
+  }
+}
 
 export default function App() {
-  // Application State
-  const [selectedHouse, setSelectedHouse] = useState<string>('universal');
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [activeMainTab, setActiveMainTab] = useState<'calculadora' | 'catalogo' | 'gestao'>('calculadora');
-  const [isRiskModalOpen, setIsRiskModalOpen] = useState<boolean>(false);
+  const [sharedInit] = useState(() => readSharedQueryParams());
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => sharedInit.tab || 'buscador');
+  const [prefilledHistory, setPrefilledHistory] = useState<string | null>(null);
 
-  // Active Multiplier & Calculation inputs
-  const [currentMultiplier, setCurrentMultiplier] = useState<number>(10.75);
-  const [baseTime, setBaseTime] = useState<string>(formatTime(new Date()));
-  const [currentRoundId, setCurrentRoundId] = useState<string>('4310619');
-
-  // Candle History (Persisted to localStorage for offline persistence)
-  const [candles, setCandles] = useState<Candle[]>(() => {
-    try {
-      const saved = localStorage.getItem('aviator_predictor_candles');
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // fallback
+  const [selectedHouse, setSelectedHouse] = useState<string>(
+    () => sharedInit.house || readStorage(STORAGE_KEYS.house, 'Qualquer Casa (Universal)')
+  );
+  const [customHouses, setCustomHouses] = useState<string[]>(() => {
+    const saved = readStorage<string[]>(STORAGE_KEYS.customHouses, []);
+    if (sharedInit.house && !saved.includes(sharedInit.house)) {
+      return [sharedInit.house, ...saved];
     }
-    return INITIAL_DEMO_CANDLES;
+    return saved;
   });
+  const [historyByHouse, setHistoryByHouse] = useState<Record<string, RoundEntry[]>>(() =>
+    readStorage(STORAGE_KEYS.historyMap, {})
+  );
+  const [searchLog, setSearchLog] = useState<SearchLogItem[]>(() =>
+    readStorage(STORAGE_KEYS.searchLog, [])
+  );
+  const [customPaceByHouse, setCustomPaceByHouse] = useState<Record<string, number>>(() =>
+    readStorage(STORAGE_KEYS.paceByHouse, {})
+  );
+  const [recentCandlesText, setRecentCandlesText] = useState('');
+  const lastLiveSyncRef = useRef<{ house: string; tsMs: number; roundNum: number } | null>(null);
 
-  // Risk profile (Bankroll & goals)
-  const [riskProfile, setRiskProfile] = useState<RiskProfile>(() => {
-    try {
-      const saved = localStorage.getItem('aviator_risk_profile');
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // fallback
-    }
-    return {
-      bankroll: 200,
-      dailyGoal: 30, // R$ 30/dia preset
-      baseBet: 2.00,
-      stopLoss: 40,
-      stopWin: 30,
-      protectionMultiplier: 1.49,
-      maxGales: 2,
-    };
-  });
+  // Main search inputs (supports shared URL params or Módulo 5 p.1 default)
+  const [roundInput, setRoundInput] = useState(() => sharedInit.round || '4310524');
+  const [multiplierInput, setMultiplierInput] = useState(() => sharedInit.mult || '12.56');
+  const [timeInput, setTimeInput] = useState(() => sharedInit.time || getCurrentTimeStr());
+  const [entryMode, setEntryMode] = useState<EntryMode>(() => sharedInit.mode || 'antes');
+  const [payoutMood, setPayoutMood] = useState<PayoutMood>(() => sharedInit.mood || 'positivo');
+  const [paceMode, setPaceMode] = useState<PaceMode>(
+    () => sharedInit.pace || readStorage<PaceMode>(STORAGE_KEYS.paceMode, 'auto')
+  );
 
-  // Save candles to localStorage on change
   useEffect(() => {
     try {
-      localStorage.setItem('aviator_predictor_candles', JSON.stringify(candles));
+      localStorage.setItem(STORAGE_KEYS.paceMode, JSON.stringify(paceMode));
     } catch {
-      // Ignore
+      // ignore
     }
-  }, [candles]);
+  }, [paceMode]);
 
-  // Save risk profile to localStorage on change
   useEffect(() => {
     try {
-      localStorage.setItem('aviator_risk_profile', JSON.stringify(riskProfile));
+      localStorage.setItem(STORAGE_KEYS.paceByHouse, JSON.stringify(customPaceByHouse));
     } catch {
-      // Ignore
+      // ignore
     }
-  }, [riskProfile]);
+  }, [customPaceByHouse]);
 
-  // Audio Chime synthesizer via pure Web Audio (works 100% offline, no network asset needed)
-  const playSignalSound = useCallback(() => {
-    if (!soundEnabled || typeof window === 'undefined') return;
+  useEffect(() => {
     try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15); // A5
-      gain.gain.setValueAtTime(0.12, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.35);
+      localStorage.setItem(STORAGE_KEYS.house, JSON.stringify(selectedHouse));
     } catch {
-      // Ignore audio failure
+      // ignore storage quota errors
     }
-  }, [soundEnabled]);
+  }, [selectedHouse]);
 
-  // Mathematical Predictions Calculations
-  const housePredictions = useMemo(() => {
-    return calculateHousePredictions(currentMultiplier);
-  }, [currentMultiplier]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.customHouses, JSON.stringify(customHouses));
+    } catch {
+      // ignore
+    }
+  }, [customHouses]);
 
-  const immediateTimePredictions = useMemo(() => {
-    return calculateImmediateTimePredictions(currentMultiplier, baseTime, currentRoundId);
-  }, [currentMultiplier, baseTime, currentRoundId]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.historyMap, JSON.stringify(historyByHouse));
+    } catch {
+      // ignore
+    }
+  }, [historyByHouse]);
 
-  const sevenHoursPredictions = useMemo(() => {
-    return calculateLongTermHorizons(currentMultiplier, baseTime, '7h');
-  }, [currentMultiplier, baseTime]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.searchLog, JSON.stringify(searchLog));
+    } catch {
+      // ignore
+    }
+  }, [searchLog]);
 
-  const twelveHoursPredictions = useMemo(() => {
-    return calculateLongTermHorizons(currentMultiplier, baseTime, '12h');
-  }, [currentMultiplier, baseTime]);
+  const houseHistory = useMemo(() => {
+    return historyByHouse[selectedHouse] ?? [];
+  }, [historyByHouse, selectedHouse]);
 
-  const twentyFourHoursPredictions = useMemo(() => {
-    return calculateLongTermHorizons(currentMultiplier, baseTime, '24h');
-  }, [currentMultiplier, baseTime]);
+  const currentHouseCustomPace = customPaceByHouse[selectedHouse] ?? null;
 
-  // Pattern detection across candle history
-  const detectedPatterns = useMemo(() => {
-    return detectPatterns(candles);
-  }, [candles]);
+  const analysis = useMemo(
+    () =>
+      analyzeAviatorRound({
+        roundInput,
+        multiplierInput,
+        timeInput,
+        entryMode,
+        payoutMood,
+        paceMode,
+        customPaceSec: currentHouseCustomPace,
+        recentCandlesText,
+        houseName: selectedHouse,
+        history: houseHistory,
+      }),
+    [
+      roundInput,
+      multiplierInput,
+      timeInput,
+      entryMode,
+      payoutMood,
+      paceMode,
+      currentHouseCustomPace,
+      recentCandlesText,
+      selectedHouse,
+      houseHistory,
+    ]
+  );
 
-  // Handlers
-  const handleCalculate = (multiplier: number, time: string, roundId?: string) => {
-    setCurrentMultiplier(multiplier);
-    setBaseTime(time || formatTime(new Date()));
-    if (roundId) setCurrentRoundId(roundId);
-    playSignalSound();
+  const notif = useRealtimeNotifications();
+
+  useEffect(() => {
+    void notif.syncAutoSignals(selectedHouse, analysis.valid ? analysis.signals : []);
+  }, [notif.autoMonitor, notif.leadSeconds, notif.syncAutoSignals, selectedHouse, analysis]);
+
+  const handleAddCustomHouse = (name: string) => {
+    setCustomHouses((prev) => (prev.includes(name) ? prev : [name, ...prev]));
   };
 
-  const handleClear = () => {
-    setCurrentMultiplier(10.00);
-    setBaseTime(formatTime(new Date()));
-    setCurrentRoundId('');
+  const handleSetCustomPaceSec = (sec: number | null) => {
+    setCustomPaceByHouse((prev) => {
+      const next = { ...prev };
+      if (sec === null) {
+        delete next[selectedHouse];
+      } else {
+        next[selectedHouse] = Math.round(Math.max(12, Math.min(38, sec)) * 10) / 10;
+      }
+      return next;
+    });
   };
 
-  const handleSelectCandleFromHistory = (candle: Candle) => {
-    setCurrentMultiplier(candle.multiplier);
-    setBaseTime(candle.time);
-    if (candle.roundId) setCurrentRoundId(candle.roundId);
-    setActiveMainTab('calculadora');
-    playSignalSound();
+  const handleSyncLiveRound = (): string => {
+    const nowMs = Date.now();
+    const curRound = parseInt(roundInput.replace(/\D/g, ''), 10) || 1;
+    const nextRound = curRound + 1;
+    const nowTime = getCurrentTimeStr();
+    setRoundInput(String(nextRound));
+    setTimeInput(nowTime);
+
+    const prev = lastLiveSyncRef.current;
+    lastLiveSyncRef.current = { house: selectedHouse, tsMs: nowMs, roundNum: nextRound };
+
+    if (prev && prev.house === selectedHouse && nextRound > prev.roundNum) {
+      const elapsedSec = (nowMs - prev.tsMs) / 1000;
+      const roundsDiff = nextRound - prev.roundNum;
+      const measuredPace = elapsedSec / roundsDiff;
+      if (measuredPace >= 12 && measuredPace <= 38) {
+        const existing = customPaceByHouse[selectedHouse];
+        const nextPace = existing
+          ? Math.round((existing * 0.55 + measuredPace * 0.45) * 10) / 10
+          : Math.round(measuredPace * 10) / 10;
+        handleSetCustomPaceSec(nextPace);
+        if (paceMode !== 'auto') setPaceMode('auto');
+        return `Rodada #${nextRound} sincronizada · Cadência de ${selectedHouse} calibrada para ${nextPace}s/rodada`;
+      }
+    }
+    return `Rodada #${nextRound} sincronizada (${nowTime}). Toque novamente quando a próxima vela fechar para auto-calibrar ${selectedHouse}.`;
   };
 
-  const handleAddCandleToHistory = (multiplier: number, time?: string) => {
-    const newCandle: Candle = {
-      id: Date.now().toString(),
-      multiplier,
-      time: time || formatTime(new Date()),
-      roundId: String(Math.floor(1000000 + Math.random() * 9000000)),
-      timestamp: Date.now(),
+  const handleRegisterRound = () => {
+    if (!analysis.valid) return;
+    const entry: RoundEntry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      roundNumber: analysis.roundNumber,
+      multiplier: analysis.multiplier,
+      timeStr: analysis.timeStr,
+      houseName: selectedHouse,
+      createdAt: Date.now(),
     };
-    setCandles([newCandle, ...candles]);
-    setCurrentMultiplier(multiplier);
-    setBaseTime(newCandle.time);
-    playSignalSound();
+    setHistoryByHouse((prev) => ({
+      ...prev,
+      [selectedHouse]: [entry, ...(prev[selectedHouse] ?? [])].slice(0, 60),
+    }));
   };
 
-  const handleResetToDemo = () => {
-    setCandles(INITIAL_DEMO_CANDLES);
+  const handleBatchAdd = (entries: RoundEntry[]) => {
+    setHistoryByHouse((prev) => ({
+      ...prev,
+      [selectedHouse]: [...entries, ...(prev[selectedHouse] ?? [])].slice(0, 60),
+    }));
   };
 
-  const handleClearHistory = () => {
-    setCandles([]);
+  const handleRemoveEntry = (id: string) => {
+    setHistoryByHouse((prev) => ({
+      ...prev,
+      [selectedHouse]: (prev[selectedHouse] ?? []).filter((e) => e.id !== id),
+    }));
   };
 
-  const handleLoadPdfPreset = (idx: number) => {
-    const ex = PDF_EXAMPLES[idx];
-    if (ex) {
-      setCurrentMultiplier(ex.multiplier);
-      setBaseTime(ex.time);
-      setCurrentRoundId(ex.roundId);
-      setActiveMainTab('calculadora');
-      playSignalSound();
+  const handleClearHouseHistory = () => {
+    setHistoryByHouse((prev) => ({
+      ...prev,
+      [selectedHouse]: [],
+    }));
+  };
+
+  const handleSaveToLog = () => {
+    if (!analysis.valid) return;
+    const summary = analysis.signals
+      .slice(0, 2)
+      .map((s) => `${s.title} (${s.targetTime})`)
+      .join(' · ');
+    const item: SearchLogItem = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      roundNumber: analysis.roundNumber,
+      multiplier: analysis.multiplier,
+      timeStr: analysis.timeStr,
+      houseName: selectedHouse,
+      topTargets: summary || 'Entrada direta',
+      result: 'pending',
+      createdAt: Date.now(),
+    };
+    setSearchLog((prev) => [item, ...prev].slice(0, 50));
+  };
+
+  const handleUpdateLogResult = (id: string, result: 'green' | 'loss' | 'pending') => {
+    setSearchLog((prev) => prev.map((item) => (item.id === id ? { ...item, result } : item)));
+  };
+
+  const handleDeleteLogItem = (id: string) => {
+    setSearchLog((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleApplyExtractedData = (payload: {
+    house?: string;
+    roundNumber?: string;
+    multiplier?: string;
+    timeStr?: string;
+    candles?: ExtractedCandleItem[];
+    goToBuscador?: boolean;
+  }) => {
+    const targetHouse = payload.house || selectedHouse;
+    if (payload.house && payload.house !== selectedHouse) {
+      setSelectedHouse(payload.house);
+    }
+
+    const baseRoundNum =
+      parseInt((payload.roundNumber || roundInput || '4310524').replace(/\D/g, ''), 10) || 4310524;
+
+    if (payload.roundNumber) {
+      setRoundInput(payload.roundNumber.replace(/\D/g, '') || String(baseRoundNum));
+    }
+    if (payload.multiplier) {
+      setMultiplierInput(payload.multiplier);
+    }
+    if (payload.timeStr) {
+      setTimeInput(payload.timeStr);
+    }
+
+    if (payload.candles && payload.candles.length > 0) {
+      const now = Date.now();
+      const entries: RoundEntry[] = payload.candles
+        .filter((c) => Number.isFinite(Number(c.vela)) && Number(c.vela) >= 1)
+        .map((c, idx) => {
+          const parsedCandleRound = c.rodada ? parseInt(c.rodada.replace(/\D/g, ''), 10) : NaN;
+          const rNum = Number.isFinite(parsedCandleRound) ? parsedCandleRound : Math.max(1, baseRoundNum - idx);
+          return {
+            id: `${now}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+            roundNumber: rNum,
+            multiplier: Number(Number(c.vela).toFixed(2)),
+            timeStr: c.horario || payload.timeStr || timeInput,
+            houseName: targetHouse,
+            createdAt: now - idx,
+          };
+        });
+
+      if (entries.length > 0) {
+        setHistoryByHouse((prev) => ({
+          ...prev,
+          [targetHouse]: [...entries, ...(prev[targetHouse] ?? [])].slice(0, 60),
+        }));
+      }
+    }
+
+    if (payload.goToBuscador) {
+      setActiveTab('buscador');
     }
   };
+
+  const navItems: { id: ActiveTab; label: string; mobileLabel: string; icon: React.FC<{ className?: string }> }[] = [
+    { id: 'buscador', label: 'Buscador', mobileLabel: 'Buscador', icon: Search },
+    { id: 'supervelas', label: 'Super Velas', mobileLabel: 'Super 7/34', icon: Flame },
+    { id: 'assistente', label: 'Assistente IA', mobileLabel: 'IA Print', icon: Bot },
+    { id: 'historico', label: 'Histórico', mobileLabel: 'Histórico', icon: History },
+    { id: 'gatilhos', label: 'Gatilhos PDF', mobileLabel: 'Gatilhos', icon: BookOpen },
+    { id: 'banca', label: 'Banca & Metas', mobileLabel: 'Banca', icon: Wallet },
+  ];
 
   return (
-    <div className="min-h-screen bg-[#090a10] text-gray-100 flex flex-col font-sans">
-      
-      {/* Top Header */}
-      <Header
-        selectedHouse={selectedHouse}
-        onSelectHouse={setSelectedHouse}
-        soundEnabled={soundEnabled}
-        onToggleSound={() => setSoundEnabled(!soundEnabled)}
-        onOpenRiskModal={() => setIsRiskModalOpen(true)}
-        onLoadExample={handleLoadPdfPreset}
-      />
+    <div className="min-h-screen bg-[#0B0F17] text-slate-100 flex flex-col">
+      {/* 3-Zone Top Bar Contract */}
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0B0F17]/90 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6">
+          {/* Zone 1: Single-line Brand Wordmark */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('buscador')}
+            className="font-display text-lg font-bold tracking-tight text-slate-50 whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            Aviator Radar Pro
+          </button>
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 space-y-4">
-        
-        {/* Navigation Tabs (Calculadora, Catálogo, Gestão) */}
-        <div className="flex items-center justify-between border-b border-gray-800/80 pb-2.5">
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <button
-              onClick={() => setActiveMainTab('calculadora')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
-                activeMainTab === 'calculadora'
-                  ? 'bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-lg shadow-pink-600/20'
-                  : 'bg-gray-900/60 text-gray-400 hover:text-white hover:bg-gray-800'
-              }`}
-            >
-              <Calculator className="w-4 h-4 text-pink-300" />
-              <span>Calculadora & Horizontes (7h / 12h / 24h)</span>
-            </button>
+          {/* Zone 2: Clean Single-Line Nav Links */}
+          <nav className="hidden md:flex items-center gap-5 text-sm font-medium" aria-label="Navegação principal">
+            {navItems.map((item) => {
+              const active = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveTab(item.id)}
+                  className={`py-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer border-b-2 ${
+                    active
+                      ? 'border-emerald-400 text-slate-50'
+                      : 'border-transparent text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
 
-            <button
-              onClick={() => setActiveMainTab('catalogo')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer ${
-                activeMainTab === 'catalogo'
-                  ? 'bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-lg shadow-pink-600/20'
-                  : 'bg-gray-900/60 text-gray-400 hover:text-white hover:bg-gray-800'
-              }`}
-            >
-              <BookOpen className="w-4 h-4 text-pink-300" />
-              <span>Gatilhos & Segredos</span>
-            </button>
-
-            <button
-              onClick={() => setIsRiskModalOpen(true)}
-              className="hidden sm:flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-gray-900/60 text-yellow-300 hover:bg-yellow-950/40 border border-yellow-500/20 transition cursor-pointer"
-            >
-              <ShieldCheck className="w-4 h-4 text-yellow-400" />
-              <span>Meta: R$ {riskProfile.dailyGoal}/dia</span>
-            </button>
-          </div>
-
-          <div className="text-[11px] text-gray-400 hidden lg:block">
-            Universal para Spribe Aviator & Crash
+          {/* Zone 3: 1 Primary Action */}
+          <div className="flex items-center shrink-0">
+            <PWAInstallButton />
           </div>
         </div>
+      </header>
 
-        {/* Tab 1: Calculadora & Horizontes */}
-        {activeMainTab === 'calculadora' && (
-          <div className="space-y-4">
-            
-            {/* Round History Feed Bar */}
-            <HistoricFeed
-              candles={candles}
-              detectedPatterns={detectedPatterns}
-              onSelectCandle={handleSelectCandleFromHistory}
-              onAddCandle={handleAddCandleToHistory}
-              onClearHistory={handleClearHistory}
-              onResetToDemoHistory={handleResetToDemo}
-            />
-
-            {/* Input Form */}
-            <CandleInput
-              currentMultiplier={currentMultiplier}
-              currentTime={baseTime}
-              currentRoundId={currentRoundId}
-              onCalculate={handleCalculate}
-              onClear={handleClear}
-            />
-
-            {/* Prediction Results Display (7h, 12h, 24h, Houses) */}
-            <PredictionResults
-              currentMultiplier={currentMultiplier}
-              baseTime={baseTime}
-              housePredictions={housePredictions}
-              immediateTimePredictions={immediateTimePredictions}
-              sevenHoursPredictions={sevenHoursPredictions}
-              twelveHoursPredictions={twelveHoursPredictions}
-              twentyFourHoursPredictions={twentyFourHoursPredictions}
-            />
-
-          </div>
+      {/* Main Content */}
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 pb-24 md:px-6 md:pb-10">
+        {activeTab === 'buscador' && (
+          <BuscadorView
+            selectedHouse={selectedHouse}
+            customHouses={customHouses}
+            onSelectHouse={setSelectedHouse}
+            onAddCustomHouse={handleAddCustomHouse}
+            roundInput={roundInput}
+            onRoundInputChange={setRoundInput}
+            multiplierInput={multiplierInput}
+            onMultiplierInputChange={setMultiplierInput}
+            timeInput={timeInput}
+            onTimeInputChange={setTimeInput}
+            entryMode={entryMode}
+            onEntryModeChange={setEntryMode}
+            payoutMood={payoutMood}
+            onPayoutMoodChange={setPayoutMood}
+            paceMode={paceMode}
+            onPaceModeChange={setPaceMode}
+            customPaceSec={currentHouseCustomPace}
+            onSetCustomPaceSec={handleSetCustomPaceSec}
+            onSyncLiveRound={handleSyncLiveRound}
+            recentCandlesText={recentCandlesText}
+            onRecentCandlesTextChange={setRecentCandlesText}
+            analysis={analysis}
+            houseHistory={houseHistory}
+            searchLog={searchLog}
+            onRegisterRound={handleRegisterRound}
+            onSaveToLog={handleSaveToLog}
+            onJumpToTab={setActiveTab}
+            notifications={{
+              permission: notif.permission,
+              isPushSubscribed: notif.isPushSubscribed,
+              sseConnected: notif.sseConnected,
+              statusNote: notif.statusNote,
+              isEnabling: notif.isEnabling,
+              soundEnabled: notif.soundEnabled,
+              onToggleSound: notif.setSoundEnabled,
+              autoMonitor: notif.autoMonitor,
+              onToggleAutoMonitor: notif.setAutoMonitor,
+              leadSeconds: notif.leadSeconds,
+              onLeadSecondsChange: notif.setLeadSeconds,
+              scheduledAlerts: notif.scheduledAlerts,
+              onEnableBackground: notif.enableBackgroundNotifications,
+              onTestNotification: () => void notif.sendTestNotification(selectedHouse, roundInput),
+              onCancelAlert: (id) => void notif.cancelAlert(id),
+              onScheduleSignalAlert: notif.scheduleAlert,
+            }}
+          />
         )}
 
-        {/* Tab 2: Catálogo de Gatilhos & Segredos */}
-        {activeMainTab === 'catalogo' && (
-          <div className="space-y-4">
-            <TriggersCheatsheet
-              onSelectTrigger={(val) => {
-                setCurrentMultiplier(val);
-                setActiveMainTab('calculadora');
-                playSignalSound();
-              }}
-            />
-
-            {/* Additional Reference from PDFs */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-              <div className="p-4 rounded-2xl bg-gray-900/60 border border-gray-800">
-                <h4 className="font-bold text-white text-sm flex items-center gap-1.5 mb-2">
-                  <Flame className="w-4 h-4 text-pink-400" />
-                  Estatística Geral do Gráfico
-                </h4>
-                <ul className="text-xs text-gray-300 space-y-1.5">
-                  <li className="flex justify-between">
-                    <span>Azuis (&lt; 2.00x):</span>
-                    <span className="font-mono font-bold text-cyan-400">~60%</span>
-                  </li>
-                  <li className="flex justify-between">
-                    <span>Roxos (2.00x - 9.99x):</span>
-                    <span className="font-mono font-bold text-purple-400">~30%</span>
-                  </li>
-                  <li className="flex justify-between">
-                    <span>Rosas (&ge; 10.00x):</span>
-                    <span className="font-mono font-bold text-pink-400">~10%</span>
-                  </li>
-                  <li className="flex justify-between">
-                    <span>Velocidade de jogo:</span>
-                    <span className="font-mono text-gray-400">~3 rodadas / min</span>
-                  </li>
-                </ul>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-gray-900/60 border border-gray-800">
-                <h4 className="font-bold text-white text-sm flex items-center gap-1.5 mb-2">
-                  <TrendingUp className="w-4 h-4 text-emerald-400" />
-                  Minutos Fortes do Aviator
-                </h4>
-                <p className="text-xs text-gray-300 leading-relaxed mb-2">
-                  Minutos terminados com os números <strong className="text-pink-400">00, 05 e 09</strong> são estatisticamente os mais propensos a puxar velas altas (Módulo 4 pág. 50).
-                </p>
-                <div className="flex flex-wrap gap-1 font-mono text-[11px] text-emerald-300">
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30">:00</span>
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30">:05</span>
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30">:09</span>
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30">:10</span>
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30">:15</span>
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30">:19</span>
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30">:20</span>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-gray-900/60 border border-gray-800">
-                <h4 className="font-bold text-white text-sm flex items-center gap-1.5 mb-2">
-                  <Award className="w-4 h-4 text-yellow-400" />
-                  Melhores Horários de Operação
-                </h4>
-                <div className="text-xs text-gray-300 space-y-1 font-mono">
-                  <p>☀️ 06:00 às 09:00</p>
-                  <p>🍲 13:00 às 14:00</p>
-                  <p>🌆 16:30 às 17:40</p>
-                  <p>🌙 20:00 às 21:00</p>
-                  <p>🌌 00:00 às 02:00</p>
-                </div>
-              </div>
-            </div>
-          </div>
+        {activeTab === 'supervelas' && (
+          <SuperVelasPanel
+            defaultHouse={selectedHouse}
+            customHouses={customHouses}
+            onAddCustomHouse={handleAddCustomHouse}
+            defaultPayoutMood={payoutMood}
+            paceSec={analysis.pace.secondsPerRound}
+            mainRoundInput={roundInput}
+            mainMultiplierInput={multiplierInput}
+            mainTimeInput={timeInput}
+            initialSharedParams={
+              sharedInit.tab === 'supervelas'
+                ? {
+                    house: sharedInit.house,
+                    round: sharedInit.sround,
+                    mult: sharedInit.smult,
+                    time: sharedInit.stime,
+                    mood: sharedInit.smood,
+                  }
+                : undefined
+            }
+            onBackToBuscador={() => setActiveTab('buscador')}
+            onScheduleAlert={notif.scheduleAlert}
+          />
         )}
 
+        {activeTab === 'assistente' && (
+          <AssistenteIAView
+            selectedHouse={selectedHouse}
+            customHouses={customHouses}
+            onSelectHouse={setSelectedHouse}
+            onAddCustomHouse={handleAddCustomHouse}
+            roundInput={roundInput}
+            multiplierInput={multiplierInput}
+            timeInput={timeInput}
+            onApplyExtractedData={handleApplyExtractedData}
+            onScheduleAlert={notif.scheduleAlert}
+            prefilledHistory={prefilledHistory}
+            onConsumePrefilledHistory={() => setPrefilledHistory(null)}
+          />
+        )}
+
+        {activeTab === 'historico' && (
+          <HistoricoPadroesView
+            selectedHouse={selectedHouse}
+            history={houseHistory}
+            searchLog={searchLog}
+            analysis={analysis}
+            onBatchAdd={handleBatchAdd}
+            onRemoveEntry={handleRemoveEntry}
+            onClearHouseHistory={handleClearHouseHistory}
+            onSelectEntryForSearch={(entry) => {
+              setRoundInput(String(entry.roundNumber));
+              setMultiplierInput(entry.multiplier.toFixed(2));
+              setTimeInput(entry.timeStr);
+              setActiveTab('buscador');
+            }}
+            onUpdateLogResult={handleUpdateLogResult}
+            onDeleteLogItem={handleDeleteLogItem}
+            onSendHistoryToAI={(formattedHistory, latestEntry) => {
+              setPrefilledHistory(formattedHistory);
+              if (latestEntry) {
+                setRoundInput(String(latestEntry.roundNumber));
+                setMultiplierInput(latestEntry.multiplier.toFixed(2));
+                setTimeInput(latestEntry.timeStr);
+              }
+              setActiveTab('assistente');
+            }}
+          />
+        )}
+
+        {activeTab === 'gatilhos' && (
+          <GatilhosCatalogoView
+            onSelectHouse={(house) => {
+              setSelectedHouse(house);
+              setActiveTab('buscador');
+            }}
+            onApplyCandle={(candleStr) => {
+              setMultiplierInput(candleStr);
+              setActiveTab('buscador');
+            }}
+          />
+        )}
+
+        {activeTab === 'banca' && <BancaMetasView />}
       </main>
 
-      {/* Risk Profile & Bankroll Modal */}
-      <RiskManagementModal
-        isOpen={isRiskModalOpen}
-        onClose={() => setIsRiskModalOpen(false)}
-        profile={riskProfile}
-        onSaveProfile={setRiskProfile}
-      />
-
-      {/* Footer */}
-      <footer className="border-t border-gray-800/80 py-4 px-6 text-center text-xs text-gray-500 bg-[#07080d]">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>Aviator Predictor Pro • 100% Offline & PWA • Algoritmo Universal Baseado nas Mentorias 1 a 5</span>
-          <span className="text-gray-600">Jogue com responsabilidade • Sempre respeite seu stop loss e stop win</span>
-        </div>
+      {/* Desktop Footer */}
+      <footer className="hidden md:block border-t border-white/10 py-4 text-center text-xs text-slate-500">
+        Aviator Radar Pro · Gerencie sua banca com responsabilidade · Nenhuma estratégia garante 100% de acerto.
       </footer>
 
+      {/* Mobile Bottom Thumb-Zone Navigation */}
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-6 border-t border-white/10 bg-[#0B0F17]/95 backdrop-blur-md pb-safe md:hidden"
+        aria-label="Navegação inferior"
+      >
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const active = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setActiveTab(item.id)}
+              className={`flex min-h-[56px] flex-col items-center justify-center gap-1 py-1.5 transition-colors cursor-pointer ${
+                active ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Icon className="h-5 w-5 shrink-0" />
+              <span className="text-[10px] font-medium tracking-tight whitespace-nowrap">
+                {item.mobileLabel}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+
+      <OfflineIndicator />
+      <RealtimeAlertToast alert={notif.activeToast} onDismiss={notif.dismissToast} />
     </div>
   );
 }

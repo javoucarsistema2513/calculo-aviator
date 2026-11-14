@@ -10,15 +10,18 @@ export default defineConfig(() => {
       react(),
       tailwindcss(),
       VitePWA({
+        strategies: 'injectManifest',
+        srcDir: 'src',
+        filename: 'sw.ts',
         registerType: 'autoUpdate',
         includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
         manifest: {
           id: '/',
-          name: 'Aviator Predictor Pro',
+          name: 'Aviator Radar Pro',
           short_name: 'AviatorPro',
-          description: 'Calculadora estatística universal e offline para análise e previsão de multiplicadores de velas do Aviator.',
-          theme_color: '#0d0e15',
-          background_color: '#090a10',
+          description: 'Buscador de rodadas e entradas do Aviator para qualquer casa seguindo estratégias de velas, horários e padrões.',
+          theme_color: '#0B0F17',
+          background_color: '#0B0F17',
           display: 'standalone',
           start_url: '/',
           scope: '/',
@@ -43,7 +46,7 @@ export default defineConfig(() => {
             },
           ],
         },
-        workbox: {
+        injectManifest: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
         },
         devOptions: {

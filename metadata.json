@@ -1,6 +1,6 @@
 {
-  "name": "Aviator Predictor Pro - Calculadora Estatística & PWA",
-  "description": "Calculadora estatística universal e offline para análise e previsão de multiplicadores de velas (roxas e rosas) no Aviator em horizontes de 7h, 12h e 24h, com catalogação gráfica e gestão de risco.",
+  "name": "Aviator Radar Pro",
+  "description": "Buscador de rodadas e sinais do Aviator para qualquer casa de apostas com cálculos em tempo real baseados nas estratégias de velas, horários e padrões.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
