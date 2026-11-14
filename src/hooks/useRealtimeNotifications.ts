@@ -353,6 +353,7 @@ export function useRealtimeNotifications() {
       houseName: string;
       roundNumber?: string;
       targetTime: string;
+      targetTimestampMs?: number;
       targetMultiplier: string;
       protection: string;
       customLeadSeconds?: number;
@@ -362,10 +363,14 @@ export function useRealtimeNotifications() {
       let triggerAtMs = Date.now() + (params.delaySeconds ?? 10) * 1000;
 
       if (params.delaySeconds === undefined) {
-        const parsedMs = parseTargetTimeToFutureMs(params.targetTime);
-        if (parsedMs) {
-          const withLead = parsedMs - lead * 1000;
-          triggerAtMs = Math.max(Date.now() + 2000, withLead);
+        if (typeof params.targetTimestampMs === 'number' && Number.isFinite(params.targetTimestampMs)) {
+          triggerAtMs = Math.max(Date.now() + 2000, params.targetTimestampMs - lead * 1000);
+        } else {
+          const parsedMs = parseTargetTimeToFutureMs(params.targetTime);
+          if (parsedMs) {
+            const withLead = parsedMs - lead * 1000;
+            triggerAtMs = Math.max(Date.now() + 2000, withLead);
+          }
         }
       }
 

@@ -87,9 +87,18 @@ export interface SuperCandleHourCycle {
   hours: SuperCandleHourValue;
   label: string;
   dayOffsetLabel: string;
-  exactTime: string;
+  exactDate: string; // DD/MM/YYYY
+  exactShortDate: string; // DD/MM
+  exactTime: string; // HH:MM:SS
+  exactDateTimeLabel: string; // DD/MM/YYYY às HH:MM:SS
+  exactTimestampMs: number;
   entryWindow: string;
-  decimalAdjustedTime: string;
+  entryWindowWithDate: string;
+  decimalAdjustedDate: string; // DD/MM/YYYY
+  decimalAdjustedShortDate: string; // DD/MM
+  decimalAdjustedTime: string; // HH:MM:SS
+  decimalAdjustedDateTimeLabel: string; // DD/MM/YYYY às HH:MM:SS
+  decimalTimestampMs: number;
   decimalOffsetMinutes: number;
   estimatedRound: number | null;
   estimatedRoundsDelta: number;
@@ -109,6 +118,7 @@ export interface SuperCandleShortWindow {
   id: string;
   label: string;
   offsetMinutes: number;
+  targetDate: string;
   targetTime: string;
   estimatedRound: number | null;
   isStrongMinute: boolean;
@@ -120,6 +130,8 @@ export interface SuperCandleShortWindow {
 export interface SuperCandleAnalysis {
   valid: boolean;
   multiplier: number;
+  dateStr: string; // YYYY-MM-DD
+  formattedDateStr: string; // DD/MM/YYYY
   timeStr: string;
   roundNumber: number | null;
   houseName: string;
@@ -227,12 +239,75 @@ export function parseQuickCandlesText(raw: string): number[] {
   return tokens.map((n) => Math.round(n * 100) / 100).slice(0, 30);
 }
 
+export function getCurrentDateStr(): string {
+  const now = new Date();
+  const yyyy = String(now.getFullYear());
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export function getCurrentTimeStr(): string {
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, '0');
   const mm = String(now.getMinutes()).padStart(2, '0');
   const ss = String(now.getSeconds()).padStart(2, '0');
   return `${hh}:${mm}:${ss}`;
+}
+
+function parseDateAndTimeToDate(dateInput: string | undefined, timeStr: string): Date {
+  const now = new Date();
+  let year = now.getFullYear();
+  let month = now.getMonth() + 1;
+  let day = now.getDate();
+
+  const cleanDate = (dateInput || '').trim();
+  const isoMatch = cleanDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const brMatch = cleanDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (isoMatch) {
+    year = parseInt(isoMatch[1], 10);
+    month = parseInt(isoMatch[2], 10);
+    day = parseInt(isoMatch[3], 10);
+  } else if (brMatch) {
+    day = parseInt(brMatch[1], 10);
+    month = parseInt(brMatch[2], 10);
+    year = parseInt(brMatch[3], 10);
+  }
+
+  const timeParts = timeStr.split(':').map((p) => parseInt(p, 10));
+  const hasValidTime = timeParts.length >= 2 && !timeParts.some(isNaN);
+  const h = hasValidTime ? Math.max(0, Math.min(23, timeParts[0] || 0)) : now.getHours();
+  const m = hasValidTime ? Math.max(0, Math.min(59, timeParts[1] || 0)) : now.getMinutes();
+  const s = hasValidTime ? Math.max(0, Math.min(59, timeParts[2] || 0)) : now.getSeconds();
+
+  return new Date(year, month - 1, day, h, m, s, 0);
+}
+
+function formatBrDate(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(d.getFullYear());
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+function formatShortBrDate(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}`;
+}
+
+function formatIsoDate(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(d.getFullYear());
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function formatDateTimeClock(d: Date, keepSeconds = true): string {
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return keepSeconds ? `${hh}:${mm}:${ss}` : `${hh}:${mm}`;
 }
 
 export function parseTimeToSeconds(timeStr: string): number {
@@ -1615,6 +1690,7 @@ function inferExpectedCandleColor(
 export function analyzeSuperCandleCycles(params: {
   candleInput: string;
   timeInput: string;
+  dateInput?: string;
   roundInput?: string;
   payoutMood: PayoutMood;
   houseName: string;
@@ -1622,6 +1698,9 @@ export function analyzeSuperCandleCycles(params: {
 }): SuperCandleAnalysis {
   const multiplier = parseMultiplier(params.candleInput);
   const timeStr = params.timeInput.trim() || getCurrentTimeStr();
+  const baseDateObj = parseDateAndTimeToDate(params.dateInput, timeStr);
+  const dateStr = formatIsoDate(baseDateObj);
+  const formattedDateStr = formatBrDate(baseDateObj);
   const parsedRound = params.roundInput ? parseInt(params.roundInput.replace(/\D/g, ''), 10) : NaN;
   const roundNumber = Number.isFinite(parsedRound) && parsedRound > 0 ? parsedRound : null;
   const paceSec =
@@ -1635,6 +1714,8 @@ export function analyzeSuperCandleCycles(params: {
     return {
       valid: false,
       multiplier: Number.isFinite(multiplier) ? multiplier : 0,
+      dateStr,
+      formattedDateStr,
       timeStr,
       roundNumber,
       houseName: params.houseName,
@@ -1699,7 +1780,12 @@ export function analyzeSuperCandleCycles(params: {
     cycleTarget = 'Rosa / Super Vela (15x–50x+)';
   }
 
-  const baseSec = parseTimeToSeconds(timeStr);
+  const baseMidnightMs = new Date(
+    baseDateObj.getFullYear(),
+    baseDateObj.getMonth(),
+    baseDateObj.getDate()
+  ).getTime();
+
   const hourDefs: Array<{ hours: SuperCandleHourValue; label: string; pdfBasis: string; baseBoost: number }> = [
     {
       hours: 7,
@@ -1728,9 +1814,13 @@ export function analyzeSuperCandleCycles(params: {
   ];
 
   const hourCycles: SuperCandleHourCycle[] = hourDefs.map((def) => {
-    const addMinutes = def.hours * 60;
-    const totalSecWithCycle = baseSec + addMinutes * 60;
-    const daySpan = Math.floor(totalSecWithCycle / 86400);
+    const exactDateObj = new Date(baseDateObj.getTime() + def.hours * 3600_000);
+    const exactMidnightMs = new Date(
+      exactDateObj.getFullYear(),
+      exactDateObj.getMonth(),
+      exactDateObj.getDate()
+    ).getTime();
+    const daySpan = Math.round((exactMidnightMs - baseMidnightMs) / 86400_000);
     const dayOffsetLabel =
       def.hours === 24
         ? 'Dia seguinte (+24h exatas)'
@@ -1740,13 +1830,31 @@ export function analyzeSuperCandleCycles(params: {
             ? 'Dia seguinte (+1 dia)'
             : 'Mesmo dia';
 
-    const exactTime = addMinutesToTime(timeStr, addMinutes, true);
-    const winStart = addSecondsToTime(exactTime, -30);
-    const winEnd = addMinutesToTime(exactTime, params.payoutMood === 'negativo' ? 2 : 1, false);
-    const entryWindow = `${winStart.slice(0, 5)} (-30s) até ${winEnd}`;
+    const exactDate = formatBrDate(exactDateObj);
+    const exactShortDate = formatShortBrDate(exactDateObj);
+    const exactTime = formatDateTimeClock(exactDateObj, true);
+    const exactDateTimeLabel = `${exactDate} às ${exactTime}`;
+
+    const winStartObj = new Date(exactDateObj.getTime() - 30_000);
+    const winEndObj = new Date(
+      exactDateObj.getTime() + (params.payoutMood === 'negativo' ? 2 : 1) * 60_000
+    );
+    const winStartStr = formatDateTimeClock(winStartObj, false);
+    const winEndStr = formatDateTimeClock(winEndObj, false);
+    const winStartShortDate = formatShortBrDate(winStartObj);
+    const winEndShortDate = formatShortBrDate(winEndObj);
+    const entryWindow = `${winStartStr} (-30s) até ${winEndStr}`;
+    const entryWindowWithDate =
+      winStartShortDate === winEndShortDate
+        ? `${winStartShortDate} · ${winStartStr} (-30s) até ${winEndStr}`
+        : `${winStartShortDate} ${winStartStr} (-30s) até ${winEndShortDate} ${winEndStr}`;
 
     const totalAdjustMin = decimalOffsetMinutes + moodShiftMin;
-    const decimalAdjustedTime = addMinutesToTime(exactTime, totalAdjustMin, true);
+    const decimalDateObj = new Date(exactDateObj.getTime() + totalAdjustMin * 60_000);
+    const decimalAdjustedDate = formatBrDate(decimalDateObj);
+    const decimalAdjustedShortDate = formatShortBrDate(decimalDateObj);
+    const decimalAdjustedTime = formatDateTimeClock(decimalDateObj, true);
+    const decimalAdjustedDateTimeLabel = `${decimalAdjustedDate} às ${decimalAdjustedTime}`;
 
     const estimatedRoundsDelta = Math.round((def.hours * 3600) / paceSec);
     const estimatedRound = roundNumber !== null ? roundNumber + estimatedRoundsDelta : null;
@@ -1770,9 +1878,18 @@ export function analyzeSuperCandleCycles(params: {
       hours: def.hours,
       label: def.label,
       dayOffsetLabel,
+      exactDate,
+      exactShortDate,
       exactTime,
+      exactDateTimeLabel,
+      exactTimestampMs: exactDateObj.getTime(),
       entryWindow,
+      entryWindowWithDate,
+      decimalAdjustedDate,
+      decimalAdjustedShortDate,
       decimalAdjustedTime,
+      decimalAdjustedDateTimeLabel,
+      decimalTimestampMs: decimalDateObj.getTime(),
       decimalOffsetMinutes: totalAdjustMin,
       estimatedRound,
       estimatedRoundsDelta,
@@ -1814,12 +1931,14 @@ export function analyzeSuperCandleCycles(params: {
         ];
 
   const shortWindows: SuperCandleShortWindow[] = shortOffsets.map((item) => {
-    const t = addMinutesToTime(timeStr, item.min, true);
+    const winDate = new Date(baseDateObj.getTime() + item.min * 60_000);
+    const t = formatDateTimeClock(winDate, true);
     const estRound = roundNumber !== null ? roundNumber + Math.round((item.min * 60) / paceSec) : null;
     return {
       id: `short-${item.min}`,
       label: item.label,
       offsetMinutes: item.min,
+      targetDate: formatShortBrDate(winDate),
       targetTime: t,
       estimatedRound: estRound,
       isStrongMinute: isStrongMinuteStr(t),
@@ -1832,6 +1951,8 @@ export function analyzeSuperCandleCycles(params: {
   return {
     valid: true,
     multiplier,
+    dateStr,
+    formattedDateStr,
     timeStr,
     roundNumber,
     houseName: params.houseName,

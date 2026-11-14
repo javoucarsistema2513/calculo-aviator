@@ -51,6 +51,7 @@ function readSharedQueryParams(): {
   pace?: PaceMode;
   sround?: string;
   smult?: string;
+  sdate?: string;
   stime?: string;
   smood?: PayoutMood;
 } {
@@ -76,11 +77,12 @@ function readSharedQueryParams(): {
         : undefined;
     const sround = sp.get('sround')?.replace(/\D/g, '') || undefined;
     const smult = sp.get('smult')?.trim() || undefined;
+    const sdate = sp.get('sdate')?.trim() || undefined;
     const stime = sp.get('stime')?.trim() || undefined;
     const rawSmood = sp.get('smood');
     const smood: PayoutMood | undefined =
       rawSmood === 'positivo' || rawSmood === 'negativo' ? rawSmood : undefined;
-    return { tab, house, round, mult, time, mode, mood, pace, sround, smult, stime, smood };
+    return { tab, house, round, mult, time, mode, mood, pace, sround, smult, sdate, stime, smood };
   } catch {
     return {};
   }
@@ -494,6 +496,7 @@ export default function App() {
                     house: sharedInit.house,
                     round: sharedInit.sround,
                     mult: sharedInit.smult,
+                    date: sharedInit.sdate,
                     time: sharedInit.stime,
                     mood: sharedInit.smood,
                   }

@@ -28,6 +28,7 @@ export function buildSuperVelasShareUrl(params: {
   houseName: string;
   roundNumber: number | null;
   multiplier: number;
+  dateStr: string;
   timeStr: string;
   payoutMood: PayoutMood;
 }): string {
@@ -40,6 +41,7 @@ export function buildSuperVelasShareUrl(params: {
     url.searchParams.set('sround', String(params.roundNumber));
   }
   url.searchParams.set('smult', params.multiplier.toFixed(2));
+  url.searchParams.set('sdate', params.dateStr);
   url.searchParams.set('stime', params.timeStr);
   url.searchParams.set('smood', params.payoutMood);
   return url.toString();
@@ -65,7 +67,7 @@ export function formatSuperVelasShareText(params: {
   const lines: string[] = [];
   lines.push(`🔥 SUPER VELAS ALTAS — ${houseName}`);
   lines.push(
-    `Vela Base: ${analysis.multiplier.toFixed(2)}x (${analysis.tierLabel}) | Hora: ${analysis.timeStr}${
+    `Vela Base: ${analysis.multiplier.toFixed(2)}x (${analysis.tierLabel}) | Data: ${analysis.formattedDateStr} | Hora: ${analysis.timeStr}${
       analysis.roundNumber ? ` | Rodada: #${analysis.roundNumber}` : ''
     }`
   );
@@ -82,7 +84,7 @@ export function formatSuperVelasShareText(params: {
       const roundStr = c.estimatedRound ? ` | Rodada Est. #${c.estimatedRound}` : '';
       const strongTag = c.isStrongMinute || c.isDecimalStrongMinute ? ' ⭐ MIN FORTE' : '';
       lines.push(
-        `🌸 +${c.hours}h (${c.dayOffsetLabel}): ${c.exactTime} (Janela ${c.entryWindow}) | Decimal: ${c.decimalAdjustedTime}${roundStr} | Alvo ${c.targetMultiplier}${strongTag}`
+        `🌸 +${c.hours}h (${c.dayOffsetLabel}): 📅 ${c.exactDate} às ${c.exactTime} (Janela ${c.entryWindowWithDate}) | Decimal: ${c.decimalAdjustedDate} às ${c.decimalAdjustedTime}${roundStr} | Alvo ${c.targetMultiplier}${strongTag}`
       );
     }
   }
@@ -93,7 +95,7 @@ export function formatSuperVelasShareText(params: {
     for (const w of analysis.shortWindows) {
       const cTag = w.expectedColor === 'rosa' ? '🌸 ROSA' : '🟣 ROXA';
       const rStr = w.estimatedRound ? ` (#${w.estimatedRound})` : '';
-      lines.push(`• ${w.label}: ${w.targetTime}${rStr} | ${cTag} ${w.targetMultiplier}`);
+      lines.push(`• ${w.label}: ${w.targetDate} ${w.targetTime}${rStr} | ${cTag} ${w.targetMultiplier}`);
     }
   }
 
@@ -138,6 +140,7 @@ export const ShareSuperVelasModal: React.FC<ShareSuperVelasModalProps> = ({
       houseName,
       roundNumber: analysis.roundNumber,
       multiplier: analysis.multiplier,
+      dateStr: analysis.dateStr,
       timeStr: analysis.timeStr,
       payoutMood,
     });
@@ -226,7 +229,8 @@ export const ShareSuperVelasModal: React.FC<ShareSuperVelasModalProps> = ({
               Compartilhar Padrões Super Velas — {houseName}
             </h3>
             <p className="mt-0.5 text-xs text-slate-400">
-              Vela <span className="font-mono text-pink-300">{analysis.multiplier.toFixed(2)}x</span> às{' '}
+              Vela <span className="font-mono text-pink-300">{analysis.multiplier.toFixed(2)}x</span> em{' '}
+              <span className="font-mono text-slate-200">{analysis.formattedDateStr}</span> às{' '}
               <span className="font-mono text-slate-200">{analysis.timeStr}</span>
               {analysis.roundNumber ? ` · Rodada #${analysis.roundNumber}` : ''}
             </p>

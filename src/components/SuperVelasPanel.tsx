@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   Bell,
+  Calendar,
   Clock,
   Flame,
   Import,
@@ -15,6 +16,7 @@ import {
   PayoutMood,
   SuperCandleHourValue,
   analyzeSuperCandleCycles,
+  getCurrentDateStr,
   getCurrentTimeStr,
   parseMultiplier,
 } from '../utils/aviatorEngine';
@@ -33,6 +35,7 @@ interface SuperVelasPanelProps {
     house?: string;
     round?: string;
     mult?: string;
+    date?: string;
     time?: string;
     mood?: PayoutMood;
   };
@@ -44,6 +47,7 @@ interface SuperVelasPanelProps {
     houseName: string;
     roundNumber?: string;
     targetTime: string;
+    targetTimestampMs?: number;
     targetMultiplier: string;
     protection: string;
   }) => Promise<void>;
@@ -58,6 +62,7 @@ interface StoredSuperInputs {
   house?: string;
   round?: string;
   candle?: string;
+  date?: string;
   time?: string;
   mood?: PayoutMood;
   cycles?: SuperCandleHourValue[];
@@ -96,6 +101,9 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
   const [superCandleInput, setSuperCandleInput] = useState<string>(
     () => initialSharedParams?.mult || savedInit.candle || '105.80'
   );
+  const [superDateInput, setSuperDateInput] = useState<string>(
+    () => initialSharedParams?.date || savedInit.date || getCurrentDateStr()
+  );
   const [superTimeInput, setSuperTimeInput] = useState<string>(
     () => initialSharedParams?.time || savedInit.time || getCurrentTimeStr()
   );
@@ -118,6 +126,7 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
         house: superHouse,
         round: superRoundInput,
         candle: superCandleInput,
+        date: superDateInput,
         time: superTimeInput,
         mood: superMood,
         cycles: activeCycleHours,
@@ -126,7 +135,7 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
     } catch {
       // ignore storage errors
     }
-  }, [superHouse, superRoundInput, superCandleInput, superTimeInput, superMood, activeCycleHours]);
+  }, [superHouse, superRoundInput, superCandleInput, superDateInput, superTimeInput, superMood, activeCycleHours]);
 
   const allHousesList = useMemo(
     () => Array.from(new Set([superHouse, ...customHouses, ...ALL_HOUSES])),
@@ -140,13 +149,14 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
     () =>
       analyzeSuperCandleCycles({
         candleInput: superCandleInput,
+        dateInput: superDateInput,
         timeInput: superTimeInput,
         roundInput: superRoundInput,
         payoutMood: superMood,
         houseName: superHouse,
         paceSec,
       }),
-    [superCandleInput, superTimeInput, superRoundInput, superMood, superHouse, paceSec]
+    [superCandleInput, superDateInput, superTimeInput, superRoundInput, superMood, superHouse, paceSec]
   );
 
   const visibleCycles = useMemo(
@@ -173,6 +183,7 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
     if (!canImportFromMain) return;
     setSuperHouse(defaultHouse);
     setSuperCandleInput(mainMultValue.toFixed(2));
+    setSuperDateInput(getCurrentDateStr());
     if (mainTimeInput.trim()) setSuperTimeInput(mainTimeInput.trim());
     if (mainRoundInput.trim()) setSuperRoundInput(mainRoundInput.trim());
   };
@@ -239,10 +250,10 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
           </div>
         </div>
 
-        {/* Dedicated Independent Inputs: Casa, Rodada, Valor da Vela, Hora */}
-        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
+        {/* Dedicated Independent Inputs: Casa, Rodada, Valor da Vela, Data, Hora */}
+        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {/* Casa */}
-          <div className="lg:col-span-3">
+          <div>
             <div className="flex items-center justify-between mb-1.5 gap-2">
               <label htmlFor="super-house-select" className="text-xs font-medium text-slate-300">
                 Casa (Separada)
@@ -302,18 +313,18 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
           </div>
 
           {/* Número da Rodada */}
-          <div className="lg:col-span-3">
+          <div>
             <div className="flex items-center justify-between mb-1.5">
               <label htmlFor="super-round-input" className="text-xs font-medium text-slate-300">
-                Nº da Rodada da Vela Alta
+                Nº da Rodada
               </label>
-              <span className="text-[11px] text-slate-500">Calcula rodada alvo</span>
+              <span className="text-[11px] text-slate-500">Rodada alvo</span>
             </div>
             <div className="flex items-center rounded-xl border border-white/15 bg-[#0B0F17] focus-within:border-pink-400">
               <button
                 type="button"
                 onClick={() => handleStepRound(-1)}
-                className="min-h-[44px] min-w-[40px] px-2.5 text-sm font-semibold text-slate-400 hover:text-slate-100 cursor-pointer"
+                className="min-h-[44px] min-w-[38px] px-2 text-sm font-semibold text-slate-400 hover:text-slate-100 cursor-pointer"
                 aria-label="Rodada anterior"
               >
                 -1
@@ -330,7 +341,7 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
               <button
                 type="button"
                 onClick={() => handleStepRound(1)}
-                className="min-h-[44px] min-w-[40px] px-2.5 text-sm font-semibold text-pink-300 hover:text-pink-200 cursor-pointer"
+                className="min-h-[44px] min-w-[38px] px-2 text-sm font-semibold text-pink-300 hover:text-pink-200 cursor-pointer"
                 aria-label="Próxima rodada"
               >
                 +1
@@ -339,14 +350,14 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
           </div>
 
           {/* Valor da Vela Alta */}
-          <div className="lg:col-span-3">
+          <div>
             <div className="flex items-center justify-between mb-1.5">
               <label htmlFor="super-candle-input" className="text-xs font-medium text-slate-300">
-                Valor da Vela Alta (x)
+                Valor da Vela (x)
               </label>
               {superAnalysis.valid && (
-                <span className="font-mono text-xs font-semibold text-pink-300">
-                  {superAnalysis.tierLabel}
+                <span className="font-mono text-[11px] font-semibold text-pink-300 truncate">
+                  {superAnalysis.tierLabel.split('(')[0].trim()}
                 </span>
               )}
             </div>
@@ -357,22 +368,49 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
                 inputMode="decimal"
                 value={superCandleInput}
                 onChange={(e) => setSuperCandleInput(e.target.value)}
-                placeholder="Ex: 52.40, 105.80, 520.00"
+                placeholder="Ex: 105.80"
                 className="min-h-[44px] w-full rounded-xl border border-pink-500/40 bg-[#0B0F17] pl-3.5 pr-9 font-mono text-base font-semibold text-pink-200 placeholder:text-slate-600 focus:border-pink-400 focus:outline-none tabular-nums"
               />
               <span className="pointer-events-none absolute right-3.5 font-mono text-sm text-pink-400">x</span>
             </div>
           </div>
 
-          {/* Hora da Vela */}
-          <div className="lg:col-span-3">
+          {/* Data da Vela */}
+          <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="super-time-input" className="text-xs font-medium text-slate-300">
-                Hora da Vela (HH:MM:SS)
+              <label htmlFor="super-date-input" className="text-xs font-medium text-slate-300">
+                Data da Vela
               </label>
               <button
                 type="button"
-                onClick={() => setSuperTimeInput(getCurrentTimeStr())}
+                onClick={() => setSuperDateInput(getCurrentDateStr())}
+                className="inline-flex items-center gap-1 text-xs font-medium text-pink-300 hover:text-pink-200 cursor-pointer"
+              >
+                <Calendar className="h-3 w-3" />
+                <span>Hoje</span>
+              </button>
+            </div>
+            <input
+              id="super-date-input"
+              type="date"
+              value={superDateInput}
+              onChange={(e) => setSuperDateInput(e.target.value)}
+              className="min-h-[44px] w-full rounded-xl border border-white/15 bg-[#0B0F17] px-3 font-mono text-sm font-semibold text-slate-100 focus:border-pink-400 focus:outline-none tabular-nums"
+            />
+          </div>
+
+          {/* Hora da Vela */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="super-time-input" className="text-xs font-medium text-slate-300">
+                Hora (HH:MM:SS)
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setSuperDateInput(getCurrentDateStr());
+                  setSuperTimeInput(getCurrentTimeStr());
+                }}
                 className="inline-flex items-center gap-1 text-xs font-medium text-pink-300 hover:text-pink-200 cursor-pointer"
               >
                 <RefreshCw className="h-3 w-3" />
@@ -488,7 +526,7 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
             {/* 7h / 12h / 24h / 34h Cycle Cards */}
             <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               {visibleCycles.map((cycle) => {
-                const alertKey = `super:${superHouse}:${cycle.hours}h:${cycle.exactTime}:${superAnalysis.multiplier}`;
+                const alertKey = `super:${superHouse}:${cycle.hours}h:${cycle.exactDate}:${cycle.exactTime}:${superAnalysis.multiplier}`;
                 const isScheduled = scheduledMap[alertKey];
                 return (
                   <article
@@ -510,17 +548,29 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
                         </span>
                       </div>
 
-                      <div className="mt-3 flex items-baseline justify-between gap-2 rounded-lg bg-[#0B0F17] px-3 py-2.5">
-                        <div>
-                          <div className="text-[11px] text-slate-400">Horário (+{cycle.hours}h)</div>
+                      {/* Data e Hora Seguinte da Entrada */}
+                      <div className="mt-3 rounded-lg border border-pink-500/25 bg-[#0B0F17] px-3 py-2.5 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400">
+                            <Calendar className="h-3 w-3 text-pink-400" />
+                            <span>Data e Hora da Entrada</span>
+                          </span>
+                          <span className="font-mono text-[11px] font-semibold text-emerald-300 tabular-nums">
+                            {cycle.exactDate}
+                          </span>
+                        </div>
+
+                        <div className="flex items-baseline justify-between gap-2">
                           <div className="font-mono text-xl font-bold text-pink-200 tabular-nums">
                             {cycle.exactTime}
                           </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-[11px] text-slate-400">Decimal (+{cycle.decimalOffsetMinutes}m)</div>
-                          <div className="font-mono text-sm font-semibold text-violet-300 tabular-nums">
-                            {cycle.decimalAdjustedTime}
+                          <div className="text-right">
+                            <div className="text-[10px] text-slate-400">
+                              Decimal (+{cycle.decimalOffsetMinutes}m)
+                            </div>
+                            <div className="font-mono text-xs font-semibold text-violet-300 tabular-nums">
+                              {cycle.decimalAdjustedShortDate} · {cycle.decimalAdjustedTime}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -536,8 +586,8 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
                         )}
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-slate-400">Janela entrada:</span>
-                          <span className="font-mono font-semibold text-slate-100 tabular-nums">
-                            {cycle.entryWindow}
+                          <span className="font-mono font-semibold text-slate-100 tabular-nums text-right">
+                            {cycle.entryWindowWithDate}
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-2">
@@ -581,10 +631,11 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
                           await onScheduleAlert({
                             key: alertKey,
                             title: `${superHouse} · Super Vela ${superAnalysis.multiplier.toFixed(2)}x (+${cycle.hours}h)`,
-                            body: `Entrada ${cycle.entryWindow} (Decimal ${cycle.decimalAdjustedTime}) | Alvo ${cycle.targetMultiplier} | Prot. ${cycle.protection}`,
+                            body: `Data/Hora ${cycle.exactDate} às ${cycle.exactTime} (${cycle.entryWindowWithDate}) | Alvo ${cycle.targetMultiplier} | Prot. ${cycle.protection}`,
                             houseName: superHouse,
                             roundNumber: cycle.estimatedRound ? String(cycle.estimatedRound) : undefined,
-                            targetTime: cycle.exactTime,
+                            targetTime: `${cycle.exactDate} ${cycle.exactTime}`,
+                            targetTimestampMs: cycle.exactTimestampMs,
                             targetMultiplier: cycle.targetMultiplier,
                             protection: cycle.protection,
                           });
@@ -652,7 +703,7 @@ export const SuperVelasPanel: React.FC<SuperVelasPanelProps> = ({
                         </div>
                         <div className="mt-1 flex items-baseline justify-between gap-2">
                           <span className="font-mono text-base font-bold text-slate-100 tabular-nums">
-                            {w.targetTime}
+                            {w.targetDate} · {w.targetTime}
                           </span>
                           {w.estimatedRound !== null && (
                             <span className="font-mono text-[11px] text-slate-300 tabular-nums">
