@@ -1,6 +1,5 @@
 import React, { useRef, useState } from 'react';
 import {
-  Bot,
   Check,
   ClipboardPaste,
   Copy,
@@ -30,7 +29,6 @@ interface HistoricoPadroesViewProps {
   onSelectEntryForSearch: (entry: RoundEntry) => void;
   onUpdateLogResult: (id: string, result: 'green' | 'loss' | 'pending') => void;
   onDeleteLogItem: (id: string) => void;
-  onSendHistoryToAI: (formattedHistory: string, latestEntry?: RoundEntry) => void;
 }
 
 function parseHistoryContent(
@@ -186,7 +184,6 @@ export const HistoricoPadroesView: React.FC<HistoricoPadroesViewProps> = ({
   onSelectEntryForSearch,
   onUpdateLogResult,
   onDeleteLogItem,
-  onSendHistoryToAI,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [batchText, setBatchText] = useState('');
@@ -298,7 +295,7 @@ export const HistoricoPadroesView: React.FC<HistoricoPadroesViewProps> = ({
               Histórico & Padrões — {selectedHouse}
             </h1>
             <p className="mt-1 text-sm text-slate-400">
-              Envie um arquivo (.txt, .csv, .json), cole a sequência de rodadas ou envie o histórico salvo diretamente para o Assistente de IA.
+              Envie um arquivo (.txt, .csv, .json) ou cole a sequência de rodadas para importar, analisar padrões e compartilhar.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 self-start">
@@ -404,22 +401,14 @@ export const HistoricoPadroesView: React.FC<HistoricoPadroesViewProps> = ({
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-base font-semibold text-slate-100">
-                Enviar Histórico de Rodadas ({history.length} salvas)
+                Exportar e Compartilhar Histórico ({history.length} salvas)
               </h2>
               <p className="text-xs text-slate-400">
-                Envie este histórico da {selectedHouse} direto para o Assistente de IA analisar padrões ou compartilhe/baixe em arquivo.
+                Compartilhe, copie ou baixe em arquivo o histórico de rodadas da {selectedHouse}.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onSendHistoryToAI(formatHistoryForShare(selectedHouse, history), history[0])}
-                className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors cursor-pointer"
-              >
-                <Bot className="h-4 w-4" />
-                <span>Enviar Histórico para IA Analisar</span>
-              </button>
               <button
                 type="button"
                 onClick={() => void handleShareHistory()}

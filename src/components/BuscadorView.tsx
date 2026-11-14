@@ -6,17 +6,14 @@ import {
   Bell,
   BellRing,
   BookmarkCheck,
-  Bot,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock,
   Crosshair,
-  Loader2,
   Plus,
   RefreshCw,
   Search,
-  Send,
   Share2,
   ShieldCheck,
   SlidersHorizontal,
@@ -25,7 +22,6 @@ import {
 } from 'lucide-react';
 import { ALL_HOUSES } from '../data/aviatorRules';
 import { ScheduledAlertItem } from '../hooks/useRealtimeNotifications';
-import { fetchJson } from '../utils/apiClient';
 import {
   AnalysisResult,
   CandleColor,
@@ -70,7 +66,7 @@ interface BuscadorViewProps {
   searchLog: SearchLogItem[];
   onRegisterRound: () => void;
   onSaveToLog: () => void;
-  onJumpToTab: (tab: 'buscador' | 'supervelas' | 'assistente' | 'historico' | 'gatilhos' | 'banca') => void;
+  onJumpToTab: (tab: 'buscador' | 'supervelas' | 'historico' | 'gatilhos' | 'banca') => void;
   notifications: {
     permission: NotificationPermission | 'unsupported';
     isPushSubscribed: boolean;
@@ -172,10 +168,6 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareFocusedProjected, setShareFocusedProjected] = useState<ProjectedRound | null>(null);
 
-  const [quickQuestion, setQuickQuestion] = useState('');
-  const [quickAnswer, setQuickAnswer] = useState<string | null>(null);
-  const [quickError, setQuickError] = useState<string | null>(null);
-  const [isAskingQuick, setIsAskingQuick] = useState(false);
   const [scheduledSignalMap, setScheduledSignalMap] = useState<Record<string, boolean>>({});
   const [showExtraTools, setShowExtraTools] = useState(false);
   const [showCalibration, setShowCalibration] = useState(false);
@@ -183,36 +175,6 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
   const [showStatsPanel, setShowStatsPanel] = useState(false);
 
   const liveSchedule = useMemo(() => getOperatingScheduleSnapshot(getCurrentTimeStr()), []);
-
-  const handleAskQuickAI = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = quickQuestion.trim();
-    if (!trimmed || isAskingQuick) return;
-    setIsAskingQuick(true);
-    setQuickError(null);
-
-    try {
-      const data = await fetchJson<{ reply?: string; error?: string }>('/api/aviator/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          houseName: selectedHouse,
-          roundNumber: roundInput,
-          lastCandle: multiplierInput,
-          timeStr: timeInput,
-          messages: [{ role: 'user', text: trimmed }],
-        }),
-      });
-      if (!data.reply) {
-        throw new Error(data.error || 'Erro ao consultar o Assistente IA.');
-      }
-      setQuickAnswer(data.reply);
-    } catch (err) {
-      setQuickError(err instanceof Error ? err.message : 'Erro ao perguntar para a IA.');
-    } finally {
-      setIsAskingQuick(false);
-    }
-  };
 
   const allHousesList = useMemo(() => {
     return Array.from(new Set([...customHouses, ...ALL_HOUSES]));
@@ -544,13 +506,13 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
               type="button"
               onClick={() => setShowExtraTools((v) => !v)}
               className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                showExtraTools || recentCandlesText.trim() || quickAnswer
+                showExtraTools || recentCandlesText.trim()
                   ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
                   : 'border-white/10 bg-[#0B0F17] text-slate-300 hover:border-white/20'
               }`}
             >
-              <Bot className="h-3.5 w-3.5" />
-              <span>Velas da Mesa & IA</span>
+              <TrendingUp className="h-3.5 w-3.5" />
+              <span>Velas da Mesa</span>
               {showExtraTools ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             </button>
           </div>
@@ -564,8 +526,8 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
           </div>
         )}
 
-        {(showExtraTools || recentCandlesText.trim() || quickAnswer || quickError) && (
-          <div className="mt-4 space-y-4 border-t border-white/10 pt-4">
+        {(showExtraTools || recentCandlesText.trim()) && (
+          <div className="mt-4 border-t border-white/10 pt-4">
             {/* Recent Table Candles Quick Feed */}
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
@@ -595,66 +557,6 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
                 placeholder="Cole da mais recente para a mais antiga (ex: 12.56 1.00 2.34 1.37 1.18 3.45)"
                 className="min-h-[42px] w-full rounded-xl border border-white/15 bg-[#0B0F17] px-3.5 font-mono text-xs sm:text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-500 focus:outline-none"
               />
-            </div>
-
-            {/* Quick AI Question Bar */}
-            <div>
-              <form onSubmit={handleAskQuickAI} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <label htmlFor="buscador-ai-question" className="sr-only">
-                  Pergunta rápida para o Assistente de IA
-                </label>
-                <div className="relative flex-1">
-                  <Bot className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-400" />
-                  <input
-                    id="buscador-ai-question"
-                    type="text"
-                    value={quickQuestion}
-                    onChange={(e) => setQuickQuestion(e.target.value)}
-                    placeholder={`Pergunte ao Assistente de IA sobre a ${selectedHouse} ou rodada #${roundInput || '—'}...`}
-                    className="min-h-[44px] w-full rounded-xl border border-white/15 bg-[#0B0F17] pl-10 pr-3.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none"
-                  />
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="submit"
-                    disabled={isAskingQuick || !quickQuestion.trim()}
-                    className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors cursor-pointer"
-                  >
-                    {isAskingQuick ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    <span>Perguntar à IA</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onJumpToTab('assistente')}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-white/15 bg-[#192231] px-3.5 text-xs font-medium text-slate-200 hover:bg-white/10 transition-colors cursor-pointer whitespace-nowrap"
-                  >
-                    <span>Abrir Assistente IA</span>
-                  </button>
-                </div>
-              </form>
-
-              {quickError && (
-                <div className="mt-2.5 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
-                  <span>{quickError}</span>
-                </div>
-              )}
-
-              {quickAnswer && (
-                <div className="mt-3 rounded-xl border border-emerald-500/30 bg-[#0B0F17] p-3.5 text-xs sm:text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
-                  <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-emerald-400">
-                    <span>RESPOSTA DO ASSISTENTE IA ({selectedHouse})</span>
-                    <button
-                      type="button"
-                      onClick={() => setQuickAnswer(null)}
-                      className="text-slate-400 hover:text-slate-200 cursor-pointer"
-                    >
-                      Fechar
-                    </button>
-                  </div>
-                  {quickAnswer}
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -1035,14 +937,6 @@ export const BuscadorView: React.FC<BuscadorViewProps> = ({
                 >
                   <Share2 className="h-3.5 w-3.5" />
                   <span>Compartilhar</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onJumpToTab('assistente')}
-                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-pointer whitespace-nowrap"
-                >
-                  <Bot className="h-3.5 w-3.5" />
-                  <span>Assistente IA</span>
                 </button>
               </div>
             </div>

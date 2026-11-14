@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Bot, Flame, History, Search, Wallet } from 'lucide-react';
-import { AssistenteIAView, ExtractedCandleItem } from './components/AssistenteIAView';
+import { BookOpen, Flame, History, Search, Wallet } from 'lucide-react';
 import { BancaMetasView } from './components/BancaMetasView';
 import { BuscadorView } from './components/BuscadorView';
 import { GatilhosCatalogoView } from './components/GatilhosCatalogoView';
@@ -20,7 +19,7 @@ import {
   getCurrentTimeStr,
 } from './utils/aviatorEngine';
 
-type ActiveTab = 'buscador' | 'supervelas' | 'assistente' | 'historico' | 'gatilhos' | 'banca';
+type ActiveTab = 'buscador' | 'supervelas' | 'historico' | 'gatilhos' | 'banca';
 
 const STORAGE_KEYS = {
   house: 'aviator_radar_selected_house',
@@ -91,7 +90,6 @@ function readSharedQueryParams(): {
 export default function App() {
   const [sharedInit] = useState(() => readSharedQueryParams());
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => sharedInit.tab || 'buscador');
-  const [prefilledHistory, setPrefilledHistory] = useState<string | null>(null);
 
   const [selectedHouse, setSelectedHouse] = useState<string>(
     () => sharedInit.house || readStorage(STORAGE_KEYS.house, 'Qualquer Casa (Universal)')
@@ -321,66 +319,9 @@ export default function App() {
     setSearchLog((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const handleApplyExtractedData = (payload: {
-    house?: string;
-    roundNumber?: string;
-    multiplier?: string;
-    timeStr?: string;
-    candles?: ExtractedCandleItem[];
-    goToBuscador?: boolean;
-  }) => {
-    const targetHouse = payload.house || selectedHouse;
-    if (payload.house && payload.house !== selectedHouse) {
-      setSelectedHouse(payload.house);
-    }
-
-    const baseRoundNum =
-      parseInt((payload.roundNumber || roundInput || '4310524').replace(/\D/g, ''), 10) || 4310524;
-
-    if (payload.roundNumber) {
-      setRoundInput(payload.roundNumber.replace(/\D/g, '') || String(baseRoundNum));
-    }
-    if (payload.multiplier) {
-      setMultiplierInput(payload.multiplier);
-    }
-    if (payload.timeStr) {
-      setTimeInput(payload.timeStr);
-    }
-
-    if (payload.candles && payload.candles.length > 0) {
-      const now = Date.now();
-      const entries: RoundEntry[] = payload.candles
-        .filter((c) => Number.isFinite(Number(c.vela)) && Number(c.vela) >= 1)
-        .map((c, idx) => {
-          const parsedCandleRound = c.rodada ? parseInt(c.rodada.replace(/\D/g, ''), 10) : NaN;
-          const rNum = Number.isFinite(parsedCandleRound) ? parsedCandleRound : Math.max(1, baseRoundNum - idx);
-          return {
-            id: `${now}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
-            roundNumber: rNum,
-            multiplier: Number(Number(c.vela).toFixed(2)),
-            timeStr: c.horario || payload.timeStr || timeInput,
-            houseName: targetHouse,
-            createdAt: now - idx,
-          };
-        });
-
-      if (entries.length > 0) {
-        setHistoryByHouse((prev) => ({
-          ...prev,
-          [targetHouse]: [...entries, ...(prev[targetHouse] ?? [])].slice(0, 60),
-        }));
-      }
-    }
-
-    if (payload.goToBuscador) {
-      setActiveTab('buscador');
-    }
-  };
-
   const navItems: { id: ActiveTab; label: string; mobileLabel: string; icon: React.FC<{ className?: string }> }[] = [
     { id: 'buscador', label: 'Buscador', mobileLabel: 'Buscador', icon: Search },
     { id: 'supervelas', label: 'Super Velas', mobileLabel: 'Super 7/34', icon: Flame },
-    { id: 'assistente', label: 'Assistente IA', mobileLabel: 'Assistente', icon: Bot },
     { id: 'historico', label: 'Histórico', mobileLabel: 'Histórico', icon: History },
     { id: 'gatilhos', label: 'Gatilhos PDF', mobileLabel: 'Gatilhos', icon: BookOpen },
     { id: 'banca', label: 'Banca & Metas', mobileLabel: 'Banca', icon: Wallet },
@@ -507,22 +448,6 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'assistente' && (
-          <AssistenteIAView
-            selectedHouse={selectedHouse}
-            customHouses={customHouses}
-            onSelectHouse={setSelectedHouse}
-            onAddCustomHouse={handleAddCustomHouse}
-            roundInput={roundInput}
-            multiplierInput={multiplierInput}
-            timeInput={timeInput}
-            onApplyExtractedData={handleApplyExtractedData}
-            onScheduleAlert={notif.scheduleAlert}
-            prefilledHistory={prefilledHistory}
-            onConsumePrefilledHistory={() => setPrefilledHistory(null)}
-          />
-        )}
-
         {activeTab === 'historico' && (
           <HistoricoPadroesView
             selectedHouse={selectedHouse}
@@ -540,15 +465,6 @@ export default function App() {
             }}
             onUpdateLogResult={handleUpdateLogResult}
             onDeleteLogItem={handleDeleteLogItem}
-            onSendHistoryToAI={(formattedHistory, latestEntry) => {
-              setPrefilledHistory(formattedHistory);
-              if (latestEntry) {
-                setRoundInput(String(latestEntry.roundNumber));
-                setMultiplierInput(latestEntry.multiplier.toFixed(2));
-                setTimeInput(latestEntry.timeStr);
-              }
-              setActiveTab('assistente');
-            }}
           />
         )}
 
@@ -575,7 +491,7 @@ export default function App() {
 
       {/* Mobile Bottom Thumb-Zone Navigation */}
       <nav
-        className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-6 border-t border-white/10 bg-[#0B0F17]/95 backdrop-blur-md pb-safe md:hidden"
+        className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-5 border-t border-white/10 bg-[#0B0F17]/95 backdrop-blur-md pb-safe md:hidden"
         aria-label="Navegação inferior"
       >
         {navItems.map((item) => {
