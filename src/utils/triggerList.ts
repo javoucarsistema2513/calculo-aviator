@@ -1,0 +1,191 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { TriggerCandle, SpecialPair } from '../types';
+
+export const SUPPORTED_HOUSES = [
+  'Qualquer Casa (Universal)',
+  'Betano',
+  'Bet7k',
+  'Blaze',
+  'Realsbet',
+  'KTO',
+  'EstrelaBet',
+  'Bet365',
+  'Superbet',
+  'EsportivaBet',
+  'F12.bet',
+  'Jonbet',
+];
+
+export const TRIGGER_CANDLES_DATABASE: TriggerCandle[] = [
+  {
+    candle: 1.00,
+    description: 'Vela de RESET absoluto do algoritmo. Puxa vela Rosa em até 10 casas.',
+    payoutExpectation: '10x a 30x (Rosa)',
+    houses: '1ª, 4ª, 5ª, 7ª, 10ª (5ª é a mais forte)',
+    module: 'Módulo 4 pág 9, 29 & Módulo 5 pág 13',
+  },
+  {
+    candle: 1.01,
+    description: 'Se vier antes ou depois de 1.00x pode pagar até 20x.',
+    payoutExpectation: '2.50x ou até 20x',
+    houses: '1ª a 5ª casa',
+    module: 'Módulo 4 pág 29, 51',
+  },
+  {
+    candle: 1.02,
+    description: 'Puxa vela de 5x ou mais com mão fixa e proteção em 1.49x.',
+    payoutExpectation: '5.00x+',
+    houses: 'Até 5 casas',
+    module: 'Módulo 4 pág 9',
+  },
+  {
+    candle: 1.03,
+    description: 'Gatilho clássico de 2.50x a 5x (Rosinha em casas como Bet7k).',
+    payoutExpectation: '2.50x a 5.00x',
+    houses: '1ª a 3ª casa',
+    module: 'Módulo 4 pág 9, 51',
+  },
+  {
+    candle: 1.04,
+    description: 'Gatilho para 5x com saída no 1.49x.',
+    payoutExpectation: '5.00x+',
+    houses: 'Até 5 casas',
+    module: 'Módulo 4 pág 9',
+  },
+  {
+    candle: 1.05,
+    description: 'Puxa vela de 5x com mão fixa e disciplina.',
+    payoutExpectation: '5.00x+',
+    houses: 'Até 5 casas',
+    module: 'Módulo 4 pág 9',
+  },
+  {
+    candle: 1.07,
+    description: 'Gatilho histórico para 5x e 10x.',
+    payoutExpectation: '5x ou 10x',
+    houses: 'Até 5 casas',
+    module: 'Módulo 4 pág 9',
+  },
+  {
+    candle: 1.09,
+    description: 'Decimal 9 indica alerta de 9 reds ou chama vela de +5.00x imediata.',
+    payoutExpectation: '5.00x+',
+    houses: 'Até 5 casas',
+    module: 'Módulo 4 pág 54 & Módulo 1 pág 7',
+  },
+  {
+    candle: 1.10,
+    description: 'Puxa vela 2.50x ou vela 5x em momentos de ciclo pagador.',
+    payoutExpectation: '2.50x a 5x',
+    houses: 'Até 5 casas',
+    module: 'Módulo 4 pág 9, 51',
+  },
+  {
+    candle: 1.11,
+    description: 'Vela Especial do método! Quebra sequências de azuis e puxa 2x a 3x.',
+    payoutExpectation: '2.00x a 3.00x',
+    houses: '1ª a 3ª casa',
+    module: 'Módulo 4 pág 9 & Módulo 5 pág 26',
+  },
+  {
+    candle: 1.12,
+    description: 'Puxa 5x ou rosa em casas como Bet7k, EsportivaBet e Blaze.',
+    payoutExpectation: '5.00x a 10.00x',
+    houses: 'Até 5 casas',
+    module: 'Módulo 4 pág 9',
+  },
+  {
+    candle: 1.14,
+    description: 'Puxa vela de 2x ou mais com segurança na proteção.',
+    payoutExpectation: '2.00x+',
+    houses: '1ª a 3ª casa',
+    module: 'Módulo 4 pág 9',
+  },
+  {
+    candle: 1.15,
+    description: 'Puxa vela de 2x ou Rosinha.',
+    payoutExpectation: '2.00x ou Rosa',
+    houses: 'Até 5 casas',
+    module: 'Módulo 4 pág 9',
+  },
+  {
+    candle: 1.17,
+    description: 'Junto com 1.71 e 1.77 puxa acima de 3x na 2ª e 3ª casa.',
+    payoutExpectation: '3.00x+',
+    houses: '2ª e 3ª casa',
+    module: 'Módulo 4 pág 9',
+  },
+  {
+    candle: 1.18,
+    description: 'Puxa 5x. Em par 1.94 + 1.18 puxa Rosa!',
+    payoutExpectation: '5x a Rosa',
+    houses: '1ª a 4ª casa',
+    module: 'Módulo 4 pág 9, 17',
+  },
+  {
+    candle: 1.20,
+    description: 'Chama vela de 8.00x e puxa rosa.',
+    payoutExpectation: '8.00x / Rosa',
+    houses: 'Até 5 casas',
+    module: 'Módulo 4 pág 54',
+  },
+  {
+    candle: 1.28,
+    description: 'Gatilho de rosa isolado na casa dos 1.20x.',
+    payoutExpectation: 'Rosa (10x+)',
+    houses: '1ª a 5ª casa',
+    module: 'Módulo 4 pág 17',
+  },
+  {
+    candle: 1.30,
+    description: 'Se vier antes ou depois de 1.00x puxa vela de até 20x.',
+    payoutExpectation: '3.00x a 20.00x',
+    houses: '1ª a 5ª casa',
+    module: 'Módulo 4 pág 29, 51',
+  },
+  {
+    candle: 1.37,
+    description: '⭐ VELA SUPER ESPECIAL (+90% assertividade). Sempre entrar buscando 5x e 10x!',
+    payoutExpectation: '5.00x a 10.00x (Rosa)',
+    houses: '1ª a 5ª casa',
+    module: 'Módulo 4 pág 9 & Módulo 5 pág 11, 26',
+  },
+  {
+    candle: 1.50,
+    description: 'Pé de vela: indica altura de 15x. Puxa 5x com facilidade.',
+    payoutExpectation: '5.00x a 15.00x',
+    houses: 'Até 5 casas',
+    module: 'Módulo 4 pág 9 & Módulo 3 pág 8',
+  },
+  {
+    candle: 1.88,
+    description: '⭐ VELA ESPECIAL DE OURO. Fazer 5 entradas fixas com proteção em 1.49x buscando 3x a 10x.',
+    payoutExpectation: '3x a 10x (Rosa)',
+    houses: '5 entradas fixas',
+    module: 'Módulo 5 pág 25, 26',
+  },
+  {
+    candle: 1.99,
+    description: 'Vela especial do método. Puxa vela 5x ou mais.',
+    payoutExpectation: '5.00x a 10.00x',
+    houses: 'Até 5 casas',
+    module: 'Módulo 5 pág 15, 26',
+  },
+];
+
+export const SPECIAL_PAIRS_CATALOG: SpecialPair[] = [
+  { name: '1.94 + 1.18', rule: 'Gatilho de Rosa Duplo', target: 'Puxa vela Rosa (10x+) em até 4 casas' },
+  { name: '1.17 + 1.00', rule: 'Reset Imediato', target: 'Puxa vela de 10x a 20x' },
+  { name: '1.09 + 1.23', rule: 'Inversão de Tendência', target: 'Puxa 5.00x ou mais' },
+  { name: '1.74 + 1.47', rule: 'Par Harmônico', target: 'Puxa 4.00x e Rosa' },
+  { name: '1.53 + 1.15', rule: 'Par Consecutivo', target: 'Puxa Rosa em até 5 casas' },
+  { name: '1.83 + 1.11', rule: 'Especial 1.11x Par', target: 'Puxa 5x a 10x' },
+  { name: '1.00 + 1.03', rule: 'Reset Duplo', target: 'Puxa Rosa com 95% assertividade' },
+  { name: '1.01 + 1.07', rule: 'Gatilho Rosa 20x', target: 'Puxa 20x em até 5 casas' },
+  { name: '1.00 + 1.27', rule: 'Gatilho 10x+', target: 'Puxa 10x na 5ª casa' },
+  { name: '1.09 + 1.07', rule: 'Padrão Ímpar', target: 'Puxa vela Roxa Alta ou Rosa' },
+];
